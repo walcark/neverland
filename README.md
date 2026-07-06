@@ -1,5 +1,12 @@
 # todo
 
+<p align="center">
+  <img src="https://github.com/walcark/pytodo/actions/workflows/ci.yml/badge.svg">
+  <a href="https://pixi.sh"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue">
+</p>
+
 A minimalist CLI to manage todo lists, built for fast daily use (fzf/gum for
 every interaction) and synchronized across devices through a dedicated git
 repository. Adding, completing or deleting a todo takes a couple of seconds.
