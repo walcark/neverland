@@ -130,10 +130,9 @@ def make_sort_key(urgency: list[str], horizon: list[str]) -> Callable[[Todo], tu
     """
 
     def rank(value: str | None, order: list[str]) -> int:
-        try:
-            return order.index(value)
-        except ValueError:
-            return len(order)
+        if value is None or value not in order:
+            return len(order)  # unknown / unset values sort last
+        return order.index(value)
 
     def key(todo: Todo) -> tuple:
         deadline = todo.deadline or date.max

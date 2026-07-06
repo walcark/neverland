@@ -231,7 +231,7 @@ def add(
         horizon=horizon,
         deadline=parsed_deadline,
     )
-    if edit:
+    if edit and todo.path is not None:
         open_editor(todo.path)
 
     _ok(f"Added: [{todo.category}/{todo.urgency}] {todo.title}")
@@ -293,6 +293,8 @@ def edit():
     if not selected:
         raise typer.Exit(1)
     todo = selected[0]
+    if todo.path is None:
+        raise FileNotFoundError(f"todo not found: {todo.id}")
     open_editor(todo.path)
     _ok(f"Edited: {todo.title}")
     auto_sync(data_dir, cfg, f"edit: {todo.title}")
