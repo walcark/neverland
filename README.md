@@ -158,16 +158,20 @@ push manually with `todo sync`.
   values = ["work", "home", "perso", "admin"]
 
   [urgency]
-  values = ["now", "soon", "someday"]
+  values = ["now", "soon", "someday"]   # order defines the sort rank
+  colors = ["bold red", "yellow", "grey62"]  # parallel to values (rich styles)
 
   [horizon]
-  values = ["today", "week", "month"]
+  values = ["today", "week", "month"]   # order defines the sort rank
 
   [sync]
   auto = true
   ```
 
-Categories, urgencies and horizons are a fixed, finite set defined here.
+Categories, urgencies and horizons are a fixed, finite set defined here. For
+`urgency` and `horizon` the **order is meaningful**: the position of a value is
+its sort rank (first = most urgent / nearest). `urgency.colors` is optional and
+parallel to `urgency.values`.
 
 ## Todo file format
 

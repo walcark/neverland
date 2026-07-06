@@ -8,14 +8,17 @@ Right now `todo init` writes a default `config.toml`. Add an optional guided
 setup (fzf/gum) to tailor the data repo config on creation:
 
 - **Categories**: enter your own list instead of the defaults.
+- **Urgency / horizon**: reorder the levels and (for urgency) pick colors.
+  These are already config fields (`urgency.values` / `urgency.colors`,
+  `horizon.values`); the questionnaire would just populate them interactively.
 - **Table style**: box style / borders for `todo show` (rich box presets).
-- **Palette**: urgency colors (now/soon/someday) and overdue color, so `show`
-  matches the user's terminal theme.
+- **Overdue color**: currently a hardcoded `OVERDUE_STYLE`; expose it in config.
 - **Sync**: choose `auto = true/false` up front.
 
 Implementation notes:
-- Extend `RepoConfig` with presentation fields (e.g. `table.box`,
-  `colors.urgency`), consumed by `render.py`.
+- `RepoConfig.urgency` / `horizon` are already `Scale` objects (ordered values
+  + colors) consumed by `render.py`. Remaining presentation fields to add:
+  `table.box` and `colors.overdue`.
 - `--no-interactive` / `--defaults` flag to keep the current one-shot behaviour
   (and for scripting/tests).
 - Re-run the questionnaire later with a `todo config` command.
