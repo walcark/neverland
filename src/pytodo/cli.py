@@ -33,6 +33,7 @@ _NO_REPO = "No data repo configured. Run `todo init <path-or-url>`."
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
+
 def _err(msg: str) -> None:
     console.print(f"[red]✗[/red] {escape(msg)}")
 
@@ -143,6 +144,7 @@ def _resolve_choice(
 # Data repo management                                                        #
 # --------------------------------------------------------------------------- #
 
+
 @app.command()
 @handle_errors
 def init(
@@ -184,6 +186,7 @@ def repo(
 # --------------------------------------------------------------------------- #
 # Mutations                                                                    #
 # --------------------------------------------------------------------------- #
+
 
 @app.command()
 @handle_errors
@@ -304,12 +307,11 @@ def edit():
 # Read                                                                         #
 # --------------------------------------------------------------------------- #
 
+
 @app.command()
 @handle_errors
 def show(
-    category: str | None = typer.Argument(
-        None, help="Only show this category (default: all)."
-    ),
+    category: str | None = typer.Argument(None, help="Only show this category (default: all)."),
     urgency: str | None = typer.Option(None, "-u", "--urgency"),
     today: bool = typer.Option(
         False, "--today", help="Today horizon + today's and overdue deadlines."
@@ -337,8 +339,7 @@ def show(
     if today:
         d = date.today()
         todos = [
-            t for t in todos
-            if t.horizon == "today" or (t.deadline is not None and t.deadline <= d)
+            t for t in todos if t.horizon == "today" or (t.deadline is not None and t.deadline <= d)
         ]
 
     render_todos(todos, cfg)
@@ -347,6 +348,7 @@ def show(
 # --------------------------------------------------------------------------- #
 # Manual synchronization                                                       #
 # --------------------------------------------------------------------------- #
+
 
 @app.command()
 @handle_errors

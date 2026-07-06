@@ -77,6 +77,7 @@ def _parse_scale(
 # Local config                                                                #
 # --------------------------------------------------------------------------- #
 
+
 def local_config_path() -> Path:
     """Return the path of the local (non-versioned) config file."""
     base = os.environ.get("XDG_CONFIG_HOME")
@@ -126,6 +127,7 @@ def write_data_dir(data_dir: Path) -> Path:
 # Data repo config                                                            #
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class RepoConfig:
     """Configuration shared across devices, versioned in the data repo.
@@ -150,6 +152,7 @@ class RepoConfig:
 
     def to_toml(self) -> str:
         """Serialize the config to a TOML string."""
+
         def arr(values: list[str]) -> str:
             return "[" + ", ".join(f'"{v}"' for v in values) + "]"
 

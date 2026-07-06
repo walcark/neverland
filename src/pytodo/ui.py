@@ -42,6 +42,7 @@ def ensure_fzf() -> None:
 # fzf                                                                          #
 # --------------------------------------------------------------------------- #
 
+
 def _run_fzf(lines: list[str], args: list[str]) -> list[str]:
     ensure_fzf()
     proc = subprocess.run(
@@ -154,6 +155,7 @@ def format_line(t: Todo) -> str:
 # --------------------------------------------------------------------------- #
 # gum (with fallback)                                                          #
 # --------------------------------------------------------------------------- #
+
 
 def text_input(placeholder: str = "", *, default: str = "") -> str:
     """Read a free-text line via ``gum input``, falling back to :func:`input`.

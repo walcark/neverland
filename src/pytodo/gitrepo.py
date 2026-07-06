@@ -37,6 +37,7 @@ class RepoError(Exception):
 # Git primitives                                                              #
 # --------------------------------------------------------------------------- #
 
+
 def run_git(
     args: list[str],
     cwd: Path | None = None,
@@ -90,9 +91,10 @@ def has_origin(path: Path) -> bool:
 
 def has_upstream(path: Path) -> bool:
     """Return whether the current branch has a configured upstream branch."""
-    return run_git(
-        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd=path
-    ).returncode == 0
+    return (
+        run_git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd=path).returncode
+        == 0
+    )
 
 
 def looks_like_url(target: str) -> bool:
@@ -143,6 +145,7 @@ def _commit_scoped(data_dir: Path, message: str, *, attempts: int = 1) -> tuple[
 # --------------------------------------------------------------------------- #
 # Layout validation                                                           #
 # --------------------------------------------------------------------------- #
+
 
 def missing_layout(path: Path) -> list[str]:
     """Return the todo layout components missing from a repo.
@@ -341,6 +344,7 @@ def setup_repo(target: str, *, confirm: Callable[[str], bool] | None = None) -> 
 # Synchronization                                                             #
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class SyncResult:
     """Outcome of :func:`sync`.
@@ -466,6 +470,7 @@ def sync(
 # After a mutation, the CLI commits locally (instant) then delegates the
 # network pull/push (~3 s) to a detached process, so that ``add``/``del``
 # return immediately. A file lock serializes those syncs against each other.
+
 
 def _sync_state_path(data_dir: Path, name: str) -> Path:
     """Return a state file path (lock/log) inside the ``.git`` dir, off the tree."""
