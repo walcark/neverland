@@ -26,6 +26,8 @@ app = typer.Typer(
     add_completion=False,
 )
 
+_NO_REPO = "No data repo configured. Run `todo init <path-or-url>`."
+
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                      #
@@ -73,7 +75,7 @@ def require_data_dir() -> Path:
     """Return the active data dir, exiting cleanly if it is unset or missing."""
     data_dir = read_data_dir()
     if data_dir is None:
-        _err("No data repo configured. Run `todo init <path-or-url>`.")
+        _err(_NO_REPO)
         raise typer.Exit(1)
     if not data_dir.exists():
         _err(f"Data repo not found: {data_dir}. Run `todo init` or `todo repo` again.")
@@ -123,6 +125,20 @@ def _validate_choice(value: str, allowed: list[str], label: str) -> str:
     return value
 
 
+def _resolve_choice(
+    value: str | None,
+    options: list[str],
+    *,
+    label: str,
+    header: str,
+    default: str | None = None,
+) -> str:
+    """Return a valid choice, prompting via fzf when ``value`` is None."""
+    if value is None:
+        value = ui.choose(options, header=header, default=default)
+    return _validate_choice(value, options, label)
+
+
 # --------------------------------------------------------------------------- #
 # Data repo management                                                        #
 # --------------------------------------------------------------------------- #
@@ -154,7 +170,7 @@ def repo(
     if path is None:
         current = read_data_dir()
         if current is None:
-            _err("No data repo configured. Run `todo init <path-or-url>`.")
+            _err(_NO_REPO)
             raise typer.Exit(1)
         console.print(str(current))
         return
@@ -189,19 +205,16 @@ def add(
             _err("Empty title, aborting.")
             raise typer.Exit(1)
 
-    if category is None:
-        category = ui.choose(cfg.categories, header="Category")
-    _validate_choice(category, cfg.categories, "category")
-
-    if urgency is None:
-        urgency = ui.choose(cfg.urgency, header="Urgency", default="soon")
-    _validate_choice(urgency, cfg.urgency, "urgency")
+    category = _resolve_choice(category, cfg.categories, label="category", header="Category")
+    urgency = _resolve_choice(
+        urgency, cfg.urgency.values, label="urgency", header="Urgency", default="soon"
+    )
 
     if horizon is None:
-        picked = ui.choose(["(none)", *cfg.horizon], header="Horizon (Esc/(none) to skip)")
+        picked = ui.choose(["(none)", *cfg.horizon.values], header="Horizon (Esc/(none) to skip)")
         horizon = None if picked == "(none)" else picked
     if horizon is not None:
-        _validate_choice(horizon, cfg.horizon, "horizon")
+        _validate_choice(horizon, cfg.horizon.values, "horizon")
 
     parsed_deadline: date | None = None
     if deadline:
@@ -306,14 +319,14 @@ def show(
     `todo show` shows everything; `todo show <category>` filters one category.
     """
     data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
 
     if done_:
-        render_todos(storage.list_done(data_dir), title="Archive")
+        render_todos(storage.list_done(data_dir), cfg, title="Archive")
         return
 
     todos = storage.list_active(data_dir)
     if category:
-        cfg = load_repo_config(data_dir)
         if category not in cfg.categories:
             _warn(f"unknown category: {category!r}. Known: {', '.join(cfg.categories)}")
         todos = [t for t in todos if t.category == category]
@@ -326,7 +339,7 @@ def show(
             if t.horizon == "today" or (t.deadline is not None and t.deadline <= d)
         ]
 
-    render_todos(todos)
+    render_todos(todos, cfg)
 
 
 # --------------------------------------------------------------------------- #
