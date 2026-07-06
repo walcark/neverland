@@ -10,9 +10,13 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from .models import Todo
+from .config import RepoConfig
+from .models import Todo, make_sort_key
 
-URGENCY_STYLE = {"now": "bold red", "soon": "yellow", "someday": "grey62"}
+# Style for a passed, still-open deadline. Per-value urgency colors are
+# configured per repo (see RepoConfig.urgency); overdue is a cross-cutting
+# emphasis that does not belong to any single urgency level.
+OVERDUE_STYLE = "bold red"
 
 # Max table width: tables adapt to the terminal width but never exceed this
 # bound (readability on wide screens).
@@ -50,31 +54,40 @@ def terminal_width(default: int = 80) -> int:
     return default
 
 
-def _urgency_cell(urgency: str) -> Text:
-    return Text(urgency, style=URGENCY_STYLE.get(urgency, ""))
+def _urgency_cell(urgency: str, cfg: RepoConfig) -> Text:
+    return Text(urgency, style=cfg.urgency.style(urgency))
 
 
 def _deadline_cell(t: Todo, today: date) -> Text:
     if t.deadline is None:
         return Text(t.horizon or "", style="grey62")
     if t.is_overdue(today):
-        return Text(f"⚠ {t.deadline.isoformat()}", style="bold red")
+        return Text(f"⚠ {t.deadline.isoformat()}", style=OVERDUE_STYLE)
     return Text(t.deadline.isoformat())
 
 
-def render_todos(todos: list[Todo], *, today: date | None = None, title: str | None = None) -> None:
+def render_todos(
+    todos: list[Todo],
+    cfg: RepoConfig,
+    *,
+    today: date | None = None,
+    title: str | None = None,
+) -> None:
     """Render todos grouped by category, sorted by urgency then deadline.
 
     Parameters
     ----------
     todos : list of Todo
         Todos to display.
+    cfg : RepoConfig
+        Active repo config, providing the urgency/horizon orderings and colors.
     today : datetime.date, optional
         Reference date for overdue detection, defaults to today.
     title : str, optional
         Optional heading printed above the tables.
     """
     today = today or date.today()
+    sort_key = make_sort_key(cfg.urgency.values, cfg.horizon.values)
 
     # Console sized to the REAL terminal so rendering never exceeds the current
     # pane (nothing is cut), and the table is capped at MAX.
@@ -94,7 +107,7 @@ def render_todos(todos: list[Todo], *, today: date | None = None, title: str | N
         by_category.setdefault(t.category or "(uncategorized)", []).append(t)
 
     for category in sorted(by_category):
-        items = sorted(by_category[category], key=lambda t: t.sort_key())
+        items = sorted(by_category[category], key=sort_key)
         table = Table(
             title=f"[bold cyan]{category}[/bold cyan]",
             title_justify="left",
@@ -108,6 +121,6 @@ def render_todos(todos: list[Todo], *, today: date | None = None, title: str | N
         table.add_column("title", ratio=1, overflow="fold")
         table.add_column("deadline", no_wrap=True)
         for t in items:
-            table.add_row(_urgency_cell(t.urgency), Text(t.title), _deadline_cell(t, today))
+            table.add_row(_urgency_cell(t.urgency, cfg), Text(t.title), _deadline_cell(t, today))
         out.print(table)
         out.print()
