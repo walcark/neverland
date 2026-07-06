@@ -2,7 +2,11 @@ from datetime import date, datetime
 
 import pytest
 
-from pytodo.models import Todo, parse_markdown
+from pytodo.models import Todo, make_sort_key, parse_markdown
+
+URGENCY = ["now", "soon", "someday"]
+HORIZON = ["today", "week", "month"]
+SORT_KEY = make_sort_key(URGENCY, HORIZON)
 
 
 def test_frontmatter_roundtrip():
@@ -54,15 +58,25 @@ def test_sort_by_urgency_then_deadline():
     someday = Todo(id="4", title="d", category="c", urgency="someday")
 
     todos = [someday, soon_late, now, soon_early]
-    ordered = sorted(todos, key=lambda t: t.sort_key())
+    ordered = sorted(todos, key=SORT_KEY)
     assert [t.id for t in ordered] == ["1", "2", "3", "4"]
 
 
 def test_dated_before_undated_same_urgency():
     dated = Todo(id="d", title="a", category="c", urgency="soon", deadline=date(2026, 5, 1))
     undated = Todo(id="u", title="b", category="c", urgency="soon")
-    ordered = sorted([undated, dated], key=lambda t: t.sort_key())
+    ordered = sorted([undated, dated], key=SORT_KEY)
     assert [t.id for t in ordered] == ["d", "u"]
+
+
+def test_sort_order_follows_config():
+    """Urgency rank is the position in the configured list, not a hardcoded map."""
+    a = Todo(id="a", title="a", category="c", urgency="low")
+    b = Todo(id="b", title="b", category="c", urgency="high")
+    # "high" first in the configured order -> sorts before "low".
+    key = make_sort_key(["high", "low"], HORIZON)
+    ordered = sorted([a, b], key=key)
+    assert [t.id for t in ordered] == ["b", "a"]
 
 
 def test_overdue():
