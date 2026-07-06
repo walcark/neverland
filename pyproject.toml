@@ -20,23 +20,42 @@ requires = ["hatchling"]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
-[tool.pixi.dependencies]
-python = ">=3.11"
-pytest = "*"
-ruff = "*"
-fzf = "*"
-
 [tool.pixi.pypi-dependencies]
 pytodo = { path = ".", editable = true }
 
+[tool.pixi.dependencies]
+python = ">=3.11"
+fzf = "*"
+
 [tool.pixi.tasks]
-test = "pytest -q"
-lint = "ruff check src tests"
 todo = "todo"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.feature.dev.dependencies]
+ruff = "*"
+mypy = ">=1.5"
+pytest = "*"
+pytest-cov = ">=6.0"
+
+[tool.pixi.feature.dev.tasks]
+fmt = "ruff format ."
+lint = "ruff check src tests"
+type-check = "mypy src/pytodo"
+test = "pytest -q --cov=src/pytodo --cov-report=term-missing"
+all = { depends-on = ["fmt", "lint", "type-check", "test"] }
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [".pixi"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
