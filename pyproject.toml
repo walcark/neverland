@@ -49,7 +49,7 @@ test = "pytest -q --cov=src/pytodo --cov-report=term-missing"
 all = { depends-on = ["fmt", "lint", "type-check", "test"] }
 
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py311"
 exclude = [".pixi"]
 
