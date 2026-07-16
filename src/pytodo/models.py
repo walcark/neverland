@@ -30,8 +30,6 @@ class Todo:
         One of ``now``, ``soon`` or ``someday``.
     horizon : str or None
         Optional soft horizon (``today``, ``week`` or ``month``).
-    deadline : datetime.date or None
-        Optional hard deadline.
     created : datetime.datetime or None
         Creation timestamp.
     completed : datetime.datetime or None
@@ -47,7 +45,6 @@ class Todo:
     category: str
     urgency: str = "soon"
     horizon: str | None = None
-    deadline: date | None = None
     created: datetime | None = None
     completed: datetime | None = None
     body: str = ""
@@ -62,7 +59,6 @@ class Todo:
             "category": self.category,
             "urgency": self.urgency,
             "horizon": self.horizon,
-            "deadline": self.deadline,
             "created": self.created,
             "completed": self.completed,
         }
@@ -88,48 +84,6 @@ class Todo:
             text += f"\n{body}\n"
         return text
 
-    # -- Sort keys --------------------------------------------------------
-
-    def is_overdue(self, today: date | None = None) -> bool:
-        """Return whether the todo has a passed, still-open deadline.
-
-        Parameters
-        ----------
-        today : datetime.date, optional
-            Reference date, defaults to :func:`datetime.date.today`.
-
-        Returns
-        -------
-        bool
-            ``True`` if the deadline is strictly before ``today`` and the todo
-            is not completed yet.
-        """
-        today = today or date.today()
-        return (
-            self.deadline is not None
-            and self.deadline < today
-            and self.completed is None
-        )
-
-    def is_due(self, today: date | None = None) -> bool:
-        """Return whether the todo is due by ``today``.
-
-        Parameters
-        ----------
-        today : datetime.date, optional
-            Reference date, defaults to :func:`datetime.date.today`.
-
-        Returns
-        -------
-        bool
-            ``True`` for a ``today`` horizon, or a deadline reached (today or
-            overdue).
-        """
-        today = today or date.today()
-        return self.horizon == "today" or (
-            self.deadline is not None and self.deadline <= today
-        )
-
     def require_path(self) -> Path:
         """Return the on-disk path, raising if it is unset or missing.
 
@@ -153,8 +107,8 @@ def make_sort_key(urgency: list[str], horizon: list[str]) -> Callable[[Todo], tu
 
     Both ``urgency`` and ``horizon`` are ordered lists coming from the repo
     config: the rank of a value is its index (position 0 is the most urgent /
-    nearest). Todos are ordered by urgency first, then dated-before-undated,
-    then by ascending deadline and horizon. Unknown values sort last.
+    nearest). Todos are ordered by urgency first, then by horizon (nearest
+    first). Unknown values sort last.
 
     Parameters
     ----------
@@ -175,27 +129,13 @@ def make_sort_key(urgency: list[str], horizon: list[str]) -> Callable[[Todo], tu
         return order.index(value)
 
     def key(todo: Todo) -> tuple:
-        deadline = todo.deadline or date.max
-        has_no_date = todo.deadline is None and todo.horizon is None
         return (
             rank(todo.urgency, urgency),
-            has_no_date,
-            deadline,
             rank(todo.horizon, horizon),
             todo.title.lower(),
         )
 
     return key
-
-
-def _coerce_date(value) -> date | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value))
 
 
 def _coerce_datetime(value) -> datetime | None:
@@ -259,7 +199,6 @@ def parse_markdown(text: str, *, todo_id: str, path: Path | None = None) -> Todo
         category=str(fm.get("category", "")),
         urgency=str(fm.get("urgency", "soon")),
         horizon=(fm.get("horizon") or None),
-        deadline=_coerce_date(fm.get("deadline")),
         created=_coerce_datetime(fm.get("created")),
         completed=_coerce_datetime(fm.get("completed")),
         body=body,

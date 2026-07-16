@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import date
 
 from rich.console import Console
 from rich.table import Table
@@ -12,11 +11,7 @@ from rich.text import Text
 
 from .config import RepoConfig
 from .models import Todo, make_sort_key
-
-# Style for a passed, still-open deadline. Per-value urgency colors are
-# configured per repo (see RepoConfig.urgency); overdue is a cross-cutting
-# emphasis that does not belong to any single urgency level.
-OVERDUE_STYLE = "bold red"
+from .plan import DayPlan, PlanStatus
 
 # Max table width: tables adapt to the terminal width but never exceed this
 # bound (readability on wide screens).
@@ -58,22 +53,17 @@ def _urgency_cell(urgency: str, cfg: RepoConfig) -> Text:
     return Text(urgency, style=cfg.urgency.style(urgency))
 
 
-def _deadline_cell(t: Todo, today: date) -> Text:
-    if t.deadline is None:
-        return Text(t.horizon or "", style="grey62")
-    if t.is_overdue(today):
-        return Text(f"⚠ {t.deadline.isoformat()}", style=OVERDUE_STYLE)
-    return Text(t.deadline.isoformat())
+def _horizon_cell(t: Todo) -> Text:
+    return Text(t.horizon or "", style="grey62")
 
 
 def render_todos(
     todos: list[Todo],
     cfg: RepoConfig,
     *,
-    today: date | None = None,
     title: str | None = None,
 ) -> None:
-    """Render todos grouped by category, sorted by urgency then deadline.
+    """Render todos grouped by category, sorted by urgency then horizon.
 
     Parameters
     ----------
@@ -81,12 +71,9 @@ def render_todos(
         Todos to display.
     cfg : RepoConfig
         Active repo config, providing the urgency/horizon orderings and colors.
-    today : datetime.date, optional
-        Reference date for overdue detection, defaults to today.
     title : str, optional
         Optional heading printed above the tables.
     """
-    today = today or date.today()
     sort_key = make_sort_key(cfg.urgency.values, cfg.horizon.values)
 
     # Console sized to the REAL terminal so rendering never exceeds the current
@@ -115,14 +102,41 @@ def render_todos(
             pad_edge=False,
             width=table_width,
         )
-        # urgency/deadline stay on one line; the title absorbs the remaining
+        # urgency/horizon stay on one line; the title absorbs the remaining
         # width and wraps (fold) instead of being truncated.
         table.add_column("urgency", no_wrap=True)
         table.add_column("title", ratio=1, overflow="fold")
-        table.add_column("deadline", no_wrap=True)
+        table.add_column("horizon", no_wrap=True)
         for t in items:
             table.add_row(
-                _urgency_cell(t.urgency, cfg), Text(t.title), _deadline_cell(t, today)
+                _urgency_cell(t.urgency, cfg), Text(t.title), _horizon_cell(t)
             )
         out.print(table)
         out.print()
+
+
+# Per-day status glyphs and colors for `todo history` (git-diff feel).
+_PLAN_GLYPH = {
+    PlanStatus.DONE: ("✓", "green"),
+    PlanStatus.DOING: ("◐", "yellow"),
+    PlanStatus.PLANNED: ("○", "grey62"),
+}
+
+
+def render_history(plans: list[DayPlan]) -> None:
+    """Print each day's plan, one colorized line per entry.
+
+    Parameters
+    ----------
+    plans : list of DayPlan
+        Daily plans, oldest first (most recent shown last).
+    """
+    if not plans:
+        console.print("[grey62]No daily plan yet.[/grey62]")
+        return
+    for plan in plans:
+        console.print(f"[bold]{plan.day.isoformat()}[/bold]")
+        for entry in plan.entries:
+            glyph, style = _PLAN_GLYPH[entry.status]
+            console.print(Text(f"  {glyph} {entry.title}", style=style))
+        console.print()

@@ -144,13 +144,8 @@ def select_todos(todos: list[Todo], *, multi: bool, preview: bool = True) -> lis
 
 
 def format_line(t: Todo) -> str:
-    """Return the fzf line ``[category] [urgency] title (horizon/deadline)``."""
-    suffix = ""
-    if t.deadline:
-        d = t.deadline.isoformat()
-        suffix = f" (⚠ {d})" if t.is_overdue() else f" ({d})"
-    elif t.horizon:
-        suffix = f" ({t.horizon})"
+    """Return the fzf line ``[category] [urgency] title (horizon)``."""
+    suffix = f" ({t.horizon})" if t.horizon else ""
     return f"[{t.category}] [{t.urgency}] {t.title}{suffix}"
 
 

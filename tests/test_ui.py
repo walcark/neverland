@@ -41,14 +41,10 @@ def test_ensure_fzf_raises_when_absent(monkeypatch):
         ui.ensure_fzf()
 
 
-def test_format_line_with_overdue():
-    from datetime import date
-
+def test_format_line_shows_horizon():
     from pytodo.models import Todo
 
-    t = Todo(
-        id="1", title="Pay", category="admin", urgency="now", deadline=date(2020, 1, 1)
-    )
+    t = Todo(id="1", title="Pay", category="admin", urgency="now", horizon="week")
     line = ui.format_line(t)
     assert line.startswith("[admin] [now] Pay")
-    assert "⚠" in line
+    assert "(week)" in line

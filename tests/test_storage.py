@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 
 from pytodo import storage
 from pytodo.config import DONE_DIRNAME, TODOS_DIRNAME
@@ -17,7 +17,7 @@ def test_create_and_list(tmp_path):
         title="Pay bill",
         category="admin",
         urgency="now",
-        deadline=date(2026, 7, 1),
+        horizon="today",
     )
     assert todo.path.exists()
     assert todo.path.parent.name == TODOS_DIRNAME
@@ -25,7 +25,7 @@ def test_create_and_list(tmp_path):
     active = storage.list_active(tmp_path)
     assert len(active) == 1
     assert active[0].title == "Pay bill"
-    assert active[0].deadline == date(2026, 7, 1)
+    assert active[0].horizon == "today"
 
 
 def test_move_to_done(tmp_path):

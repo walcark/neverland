@@ -19,13 +19,22 @@ from .config import (
     write_data_dir,
 )
 from .models import Todo
-from .render import console, render_todos
+from .plan import PlanEntry, PlanStatus
+from .render import console, render_history, render_todos
 
 app = typer.Typer(
     help="Manage todos synchronized through git.",
-    no_args_is_help=True,
     add_completion=False,
 )
+
+
+@app.callback(invoke_without_command=True)
+def _root(ctx: typer.Context) -> None:
+    """Show today's plan when run without a subcommand (`todo`)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _render_today(require_data_dir())
+
 
 _NO_REPO = "No data repo configured. Run `todo init <path-or-url>`."
 
@@ -179,6 +188,38 @@ def _pick_active(*, multi: bool) -> tuple[Path, RepoConfig, list[Todo]]:
     return data_dir, cfg, selected
 
 
+def _reflect_done_in_today(data_dir: Path, todo_ids: list[str]) -> None:
+    """Mark ``todo_ids`` as done in today's plan, if they appear in it.
+
+    The daily status is a separate axis from the global lifecycle, but a global
+    completion is also a completion for the day, so we reflect it (only when a
+    plan for today exists).
+    """
+    today = date.today()
+    if not storage.plan_exists(data_dir, today):
+        return
+    plan = storage.load_day_plan(data_dir, today)
+    changed = False
+    for todo_id in todo_ids:
+        entry = plan.find(todo_id)
+        if entry is not None and entry.status is not PlanStatus.DONE:
+            entry.status = PlanStatus.DONE
+            changed = True
+    if changed:
+        storage.save_day_plan(data_dir, plan)
+
+
+def _render_today(data_dir: Path) -> None:
+    """Print today's plan, or a hint when there is none yet."""
+    plan = storage.load_day_plan(data_dir, date.today())
+    if not plan.entries:
+        console.print(
+            "[grey62]No plan for today. Run `todo day` to build one.[/grey62]"
+        )
+        return
+    render_history([plan])
+
+
 # --------------------------------------------------------------------------- #
 # Data repo management                                                        #
 # --------------------------------------------------------------------------- #
@@ -228,9 +269,6 @@ def add(
     category: str | None = typer.Option(None, "-c", "--category"),
     urgency: str | None = typer.Option(None, "-u", "--urgency"),
     horizon: str | None = typer.Option(None, "--horizon"),
-    deadline: str | None = typer.Option(
-        None, "--deadline", help="ISO date YYYY-MM-DD."
-    ),
     edit: bool = typer.Option(False, "--edit", help="Open $EDITOR after creation."),
 ):
     """Add a todo (interactive; any missing option triggers a prompt)."""
@@ -257,22 +295,12 @@ def add(
         header="Horizon (Esc/(none) to skip)",
     )
 
-    parsed_deadline: date | None = None
-    if deadline:
-        try:
-            parsed_deadline = date.fromisoformat(deadline)
-        except ValueError:
-            raise typer.BadParameter(
-                "deadline must be an ISO date YYYY-MM-DD"
-            ) from None
-
     todo = storage.create_todo(
         data_dir,
         title=title,
         category=category,
         urgency=urgency,
         horizon=horizon,
-        deadline=parsed_deadline,
     )
     if edit and todo.path is not None:
         open_editor(todo.path)
@@ -288,6 +316,7 @@ def done():
     data_dir, cfg, selected = _pick_active(multi=True)
     for t in selected:
         storage.move_to_done(t, data_dir)
+    _reflect_done_in_today(data_dir, [t.id for t in selected])
     _ok(f"{len(selected)} todo(s) completed.")
     auto_sync(data_dir, cfg, f"done: {len(selected)} todo(s)")
 
@@ -317,6 +346,97 @@ def edit():
 
 
 # --------------------------------------------------------------------------- #
+# Daily plans                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+@app.command()
+@handle_errors
+def day():
+    """Build today's plan: carry unfinished items forward, then add todos.
+
+    On the first run of a new day, offers to carry the previous day's
+    unfinished (planned/doing) items forward. Then lets you pick, via fzf,
+    among the active todos not already planned today.
+    """
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+    today = date.today()
+    active = storage.list_active(data_dir)
+    active_ids = {t.id for t in active}
+    plan = storage.load_day_plan(data_dir, today)
+
+    # Rollover: only on the first `day` of a new day, and only for items whose
+    # todo is still active (globally completed/deleted ones are dropped).
+    if not storage.plan_exists(data_dir, today):
+        previous = storage.latest_plan_before(data_dir, today)
+        if previous is not None:
+            carry = [
+                e
+                for e in previous.entries
+                if e.status is not PlanStatus.DONE and e.todo_id in active_ids
+            ]
+            prompt = (
+                f"Carry {len(carry)} unfinished item(s) "
+                f"from {previous.day.isoformat()}?"
+            )
+            if carry and ui.confirm(prompt):
+                for e in carry:
+                    plan.entries.append(PlanEntry(todo_id=e.todo_id, title=e.title))
+
+    candidates = [t for t in active if not plan.has(t.id)]
+    if candidates:
+        for t in ui.select_todos(candidates, multi=True):
+            plan.entries.append(PlanEntry(todo_id=t.id, title=t.title))
+    elif not plan.entries:
+        console.print("[grey62]No active todo to plan.[/grey62]")
+        return
+
+    storage.save_day_plan(data_dir, plan)
+    render_history([plan])
+    _ok(f"Today's plan: {len(plan.entries)} item(s).")
+    auto_sync(data_dir, cfg, f"day: plan {today.isoformat()}")
+
+
+@app.command()
+@handle_errors
+def doing():
+    """Mark planned items of today's plan as in progress (fzf multi-select)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+    today = date.today()
+    plan = storage.load_day_plan(data_dir, today)
+    planned = {e.todo_id for e in plan.entries if e.status is PlanStatus.PLANNED}
+    if not planned:
+        console.print("[grey62]No planned item today.[/grey62]")
+        return
+    todos = [t for t in storage.list_active(data_dir) if t.id in planned]
+    selected = ui.select_todos(todos, multi=True)
+    if not selected:
+        raise typer.Exit(1)
+    for t in selected:
+        entry = plan.find(t.id)
+        if entry is not None:
+            entry.status = PlanStatus.DOING
+    storage.save_day_plan(data_dir, plan)
+    _ok(f"{len(selected)} item(s) in progress.")
+    auto_sync(data_dir, cfg, f"doing: {len(selected)} item(s)")
+
+
+@app.command()
+@handle_errors
+def history(
+    today: bool = typer.Option(False, "--today", "-t", help="Only today's plan."),
+):
+    """Show each day's plan with colorized per-day statuses (git-diff feel)."""
+    data_dir = require_data_dir()
+    if today:
+        _render_today(data_dir)
+        return
+    render_history(storage.load_plans(data_dir))
+
+
+# --------------------------------------------------------------------------- #
 # Read                                                                         #
 # --------------------------------------------------------------------------- #
 
@@ -328,9 +448,6 @@ def show(
         None, help="Only show this category (default: all)."
     ),
     urgency: str | None = typer.Option(None, "-u", "--urgency"),
-    today: bool = typer.Option(
-        False, "--today", help="Today horizon + today's and overdue deadlines."
-    ),
     done_: bool = typer.Option(False, "--done", help="Show the archive."),
 ):
     """Show todos (rich), grouped by category and sorted.
@@ -351,9 +468,6 @@ def show(
         todos = [t for t in todos if t.category == category]
     if urgency:
         todos = [t for t in todos if t.urgency == urgency]
-    if today:
-        d = date.today()
-        todos = [t for t in todos if t.is_due(d)]
 
     render_todos(todos, cfg)
 

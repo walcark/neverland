@@ -15,6 +15,7 @@ from pathlib import Path
 
 TODOS_DIRNAME = "todos"
 DONE_DIRNAME = "done"
+PLANS_DIRNAME = "plans"
 REPO_CONFIG_NAME = "config.toml"
 
 DEFAULT_CATEGORIES = ["work", "home", "perso", "admin"]

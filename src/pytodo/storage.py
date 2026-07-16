@@ -6,8 +6,9 @@ import secrets
 from datetime import date, datetime
 from pathlib import Path
 
-from .config import DONE_DIRNAME, TODOS_DIRNAME
+from .config import DONE_DIRNAME, PLANS_DIRNAME, TODOS_DIRNAME
 from .models import Todo, load_todo
+from .plan import DayPlan, parse_plan
 
 
 def todos_dir(data_dir: Path) -> Path:
@@ -61,7 +62,6 @@ def create_todo(
     category: str,
     urgency: str = "soon",
     horizon: str | None = None,
-    deadline: date | None = None,
     now: datetime | None = None,
 ) -> Todo:
     """Create a new active todo file.
@@ -78,8 +78,6 @@ def create_todo(
         Urgency value, defaults to ``soon``.
     horizon : str or None, optional
         Optional horizon.
-    deadline : datetime.date or None, optional
-        Optional hard deadline.
     now : datetime.datetime, optional
         Creation time, defaults to now.
 
@@ -99,7 +97,6 @@ def create_todo(
         category=category,
         urgency=urgency,
         horizon=horizon,
-        deadline=deadline,
         created=now.replace(microsecond=0),
         path=path,
     )
@@ -155,3 +152,69 @@ def delete_todo(todo: Todo) -> None:
         If the file does not exist.
     """
     todo.require_path().unlink()
+
+
+# --------------------------------------------------------------------------- #
+# Daily plans                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def plans_dir(data_dir: Path) -> Path:
+    """Return the ``plans/`` directory for a data repo."""
+    return data_dir / PLANS_DIRNAME
+
+
+def _plan_path(data_dir: Path, day: date) -> Path:
+    return plans_dir(data_dir) / f"{day.isoformat()}.md"
+
+
+def plan_exists(data_dir: Path, day: date) -> bool:
+    """Return whether a plan file already exists for ``day``."""
+    return _plan_path(data_dir, day).exists()
+
+
+def load_day_plan(data_dir: Path, day: date) -> DayPlan:
+    """Return the plan for ``day`` (an empty plan if the file is absent)."""
+    path = _plan_path(data_dir, day)
+    if not path.exists():
+        return DayPlan(day=day)
+    return parse_plan(path.read_text(encoding="utf-8"), day=day)
+
+
+def save_day_plan(data_dir: Path, plan: DayPlan) -> Path:
+    """Write ``plan`` to its day file, creating ``plans/`` if needed."""
+    directory = plans_dir(data_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = _plan_path(data_dir, plan.day)
+    path.write_text(plan.to_markdown(), encoding="utf-8")
+    return path
+
+
+def list_plan_days(data_dir: Path) -> list[date]:
+    """Return every day that has a plan file, oldest first."""
+    directory = plans_dir(data_dir)
+    if not directory.exists():
+        return []
+    days: list[date] = []
+    for path in directory.glob("*.md"):
+        try:
+            days.append(date.fromisoformat(path.stem))
+        except ValueError:
+            continue  # ignore files that are not ISO-dated plans
+    return sorted(days)
+
+
+def load_plans(data_dir: Path) -> list[DayPlan]:
+    """Return every daily plan, oldest first."""
+    return [load_day_plan(data_dir, day) for day in list_plan_days(data_dir)]
+
+
+def latest_plan_before(data_dir: Path, day: date) -> DayPlan | None:
+    """Return the most recent non-empty plan strictly before ``day``."""
+    for past in reversed(list_plan_days(data_dir)):
+        if past >= day:
+            continue
+        plan = load_day_plan(data_dir, past)
+        if plan.entries:
+            return plan
+    return None

@@ -93,10 +93,14 @@ todo repo ~/other-data    # switch to another one (same create-or-validate rules
 
 | Command                         | What it does                                                        |
 | ------------------------------- | ------------------------------------------------------------------- |
+| `todo`                          | No subcommand: show today's plan.                                   |
 | `todo add [title]`              | Add a todo. Interactive; any missing option prompts via fzf/gum.    |
 | `todo done`                     | Complete todos (fzf multi-select, preview).                         |
 | `todo del`                      | Permanently delete todos (fzf multi-select + confirmation).         |
 | `todo edit`                     | Open a todo body in `$EDITOR` (fzf single-select).                  |
+| `todo day`                      | Build today's plan: carry unfinished items forward, then pick todos.|
+| `todo doing`                    | Mark planned items of today's plan as in progress.                  |
+| `todo history`                  | Show each day's plan, colorized by per-day status.                  |
 | `todo show [category]`          | Show active todos, grouped by category and sorted.                  |
 | `todo sync`                     | Force a blocking pull -> commit -> push.                            |
 | `todo repo [path]`              | Print or switch the active data repo.                               |
@@ -107,7 +111,7 @@ todo repo ~/other-data    # switch to another one (same create-or-validate rules
 Fully non-interactive form (any omitted option triggers its prompt):
 
 ```sh
-todo add "Renew passport" -c admin -u soon --horizon month --deadline 2026-08-15
+todo add "Renew passport" -c admin -u soon --horizon month
 todo add "Pay bill" -c admin -u now          # prompts for the horizon
 todo add                                     # prompts for everything
 ```
@@ -120,13 +124,34 @@ Add `--edit` to open `$EDITOR` on the new file to write a markdown body.
 todo show            # all categories
 todo show work       # only the "work" category
 todo show -u now     # only "now" urgency
-todo show --today    # today horizon + today's and overdue deadlines
 todo show --done     # the archive
 ```
 
 Tables adapt to the terminal width (capped at 100 columns) and wrap long titles
-instead of truncating them. Overdue deadlines are shown in red with a `⚠`
-marker.
+instead of truncating them.
+
+## Daily plans
+
+Beside the stock of todos, `todo day` builds a per-day *working set* to track
+what you actually do each day, without changing the todo lifecycle.
+
+```sh
+todo            # (no subcommand) show today's plan
+todo day        # (rollover of yesterday's unfinished items) then pick todos
+todo doing      # move planned items to "in progress"
+todo history    # per-day recap, colorized (todo history -t: today only)
+```
+
+- **One file per day**: `plans/YYYY-MM-DD.md`, one line per todo, referenced by
+  id with a title snapshot. It is a *log*: entries are never removed, so the
+  history survives completing or deleting the underlying todo.
+- **Per-day status** (`planned` / `doing` / `done`) is a separate axis from the
+  global lifecycle (`todos/` vs `done/`). It is encoded as a markdown checkbox
+  (`[ ]` / `[/]` / `[x]`), so `todo history` reads like a git diff.
+- **`todo done` also ticks the item done in today's plan** when it is there:
+  completing a task is completing it for the day too.
+- **Rollover**: the first `todo day` of a new day offers to carry the previous
+  day's still-open items forward (only those whose todo is still active).
 
 ## Sync model
 
@@ -188,7 +213,6 @@ title: "Renew passport"
 category: admin
 urgency: soon          # now | soon | someday
 horizon: month         # today | week | month | null
-deadline: 2026-08-15   # optional ISO date
 created: 2026-07-05T14:32:01
 completed: null        # filled when moved to done/
 ---

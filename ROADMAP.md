@@ -36,6 +36,12 @@ Implementation notes:
 
 ## 3. Daily plans (`todo day`)
 
+**Status: implemented.** `todo day` / `todo doing` / `todo history` ship with
+three per-day states (`planned` / `doing` / `done`) and rollover. Model in
+`plan.py`, storage in `storage.py`, rendering in `render.py`. The notes below
+are the design rationale (kept for reference); remaining ideas are in
+*Follow-ups* at the end.
+
 The stock of todos (`todo show`) answers *what is there to do*, not *what am I
 working on today*. Daily plans add a lightweight, per-day working set with
 progress tracking, layered **on top of** the todo lifecycle without altering it.
@@ -67,8 +73,11 @@ Rules that fall out of this:
   purpose* — that is the history. The stored title snapshot keeps the log
   **self-contained**, so `todo history` still renders correctly even after the
   todo has left `todos/`.
-- `todo add` / `todo done` / `todo del` / `todo edit` never touch daily files.
-  Daily plans are a separate, additive layer.
+- **One deliberate coupling** (decided during implementation): `todo done` also
+  ticks the item `[x]` in *today's* plan when it is present — completing a task
+  is completing it for the day. `add` / `del` / `edit` still never touch daily
+  files. A `del`-ed todo's entry stays as-is (dangling, by the "never remove"
+  rule above).
 
 ### Two distinct "done"s — keep them apart
 
@@ -86,12 +95,14 @@ They are independent axes.
 
 - `todo day` — fzf-pick from active todos; selected ones are appended (status
   `planned`) to today's file, creating it if needed. Re-running the same day
-  appends to the existing file. Named `day` (not `today`) to avoid colliding
-  with the existing `todo show --today` horizon filter.
-- `todo doing` — mark a planned item as in progress. *Candidate — see "start
-  minimal" below.*
-- `todo history` — per-day summary with colorized statuses (green done / orange
-  doing / red planned), git-diff style.
+  appends. Named `day` (not `today`) to keep the plan verb distinct from a
+  stock view.
+- `todo doing` — mark planned items of today's plan as in progress (fzf
+  multi-select over the planned entries).
+- `todo history` — per-day summary with colorized statuses (green done / yellow
+  doing / grey planned), git-diff style. `-t` / `--today` shows only today.
+- **`todo` (no subcommand)** — the daily dashboard: prints today's plan (or a
+  hint to run `todo day`). This is the intended most-frequent command.
 
 All progress mutations still go through the `todo` cli — the daily file is never
 hand-edited in normal use.
@@ -122,20 +133,29 @@ differently on **two offline devices the same day** (e.g. `[/]` on the laptop,
 precedence `done > doing > planned` (highest wins on merge). Document it; do not
 over-engineer it.
 
-### Open questions
+### Resolved decisions
 
-- **Rollover.** On the first `todo day` of a new day, offer to carry forward the
-  previous day's unfinished (`planned` / `doing`) items. Decide the source: only
-  yesterday, or the last non-empty day.
-- **Start minimal (YAGNI).** Ship two states (`planned` / `done`) first; add
-  `doing` (and the `todo doing` command) only once the need is confirmed.
+- **Rollover.** The first `todo day` of a day offers to carry forward the **last
+  non-empty day's** still-open (`planned` / `doing`) items, and only those whose
+  todo is still active (globally done/deleted ones are dropped). Carried items
+  come back as `planned`.
+- **States.** Shipped with all three (`planned` / `doing` / `done`), not the
+  two-state MVP — `doing` was a core part of the original need.
 
-### MVP
+### Follow-ups (not done)
 
-`todo day` (pick → write `id + title` refs, status `planned`) + `todo history`
-(colorized render). Defer: `doing`, rollover, and subtasks (§5).
+- **Merge precedence on conflict** (`done > doing > planned`): documented above,
+  not yet enforced by code (relies on git's line merge for now).
+- **Subtasks** (§5): entries reference todos by id, so first-class subtasks slot
+  in as ordinary entries later without changing the file format.
 
-## 4. Mobile capture
+## 4. Frontends beyond the CLI (mobile & desktop)
+
+All of these are **frontends on the shared core**: they reuse pytodo's library
+layer (`storage` / `gitrepo` / `config` / `models` / `plan`) and swap only the
+edges (`ui.py` fzf/gum, `render.py` rich). None of them reimplement the todo
+logic or shell out to the CLI. 4a is a no-server fallback for mobile capture,
+4b (`pytodo-server`) is the real mobile answer, 4c is the desktop GUI.
 
 The dominant mobile need is **capture** — dropping a task the moment it comes to
 mind — not full management. Completing / reorganizing can stay on desktop / CLI.
@@ -143,9 +163,14 @@ So optimize mobile for capture first (GTD: capture ≠ process). `todo add` over
 Termux is too heavy for this, and a native Android app is disproportionate (a
 PWA replaces it — see 4b).
 
-Two options, ordered by infrastructure cost.
+Two mobile options, ordered by infrastructure cost.
 
-### 4a. Inbox + synced folder (no server) — near-term
+### 4a. Inbox + synced folder (no server) — optional fallback
+
+Only worth it if the `pytodo-server` (4b) is not up yet: it needs no server at
+all. Once 4b exists, its "quick add" field covers capture and this becomes
+redundant.
+
 
 An `inbox` file in the data repo. On mobile, a home-screen text widget (via
 Nextcloud Notes, Syncthing, or similar) *appends a raw line*. On desktop a new
@@ -160,28 +185,84 @@ Nextcloud Notes, Syncthing, or similar) *appends a raw line*. On desktop a new
   never todos to begin with.
 - Nextcloud (or Syncthing) is used here purely as a **file-sync transport**.
 
-### 4b. Web app / PWA (Django, git backend) — later, needs a server
+### 4b. `pytodo-server`: self-hosted web app / PWA — the real mobile answer
 
-The "web page with a button per action" idea, and it is architecturally clean:
-pytodo's library layer (`storage` / `gitrepo` / `config` / `models`) is separate
-from `cli.py`, so the planned Django markdown->HTML renderer (§5, *Web
-rendering*) can **import and call the same core directly** — CLI and web share
-one code path, zero duplication.
+Goal: usable from the **phone's browser, zero install** (optionally "add to home
+screen" as a PWA — app-like, no app store). A web page that *mutates* todos
+needs a backend, so this is a small self-hosted server, `pytodo-server`, on one
+always-on machine (home server / Raspberry Pi / small VPS). It **subsumes 4a**:
+with a real server, mobile capture is just a "quick add" field.
 
-- The renderer gains write endpoints (`add` / `done` / `del`) that call
-  `storage.save_todo` + `gitrepo.sync`, exactly like the CLI. The server becomes
-  just another git writer → pull-before-write / push-after keeps the
-  conflict-free property.
-- Ship it as a **PWA** ("add to home screen"): behaves like an app, one tap, no
-  Kotlin, no app store, no native Android work.
-- **Requires** an always-on server reachable from mobile (home server +
-  Tailscale/VPN, or a small VPS) and **authentication** — never expose write
-  endpoints unauthenticated. Blocked on the home-server project maturing.
+Architecture (one process):
+
+```
+   phone (browser / PWA)
+        │  HTTP(S)
+        ▼
+  pytodo-server ── import pytodo (storage / plan / models / gitrepo / config)
+   - serves the PWA (HTML/JS)
+   - read/write API: GET /today /stock ; POST /add /done /doing /day
+   - sync orchestration (shared auto_sync)
+   - holds a git working copy of the data repo
+        │  git pull / push
+        ▼
+  personal remote (GitHub / GitLab / Nextcloud-hosted git)
+        ▲
+        │  todo sync
+  desktop CLI
+```
+
+- **Frontend on the shared core**: the server `import`s pytodo and calls the
+  same functions as the CLI (`storage.*`, `create_todo`, `gitrepo.sync`), never
+  shells out. It replaces the edges (`ui.py` → tap targets, `render.py` → HTML).
+- **"Connect a personal repo" = a git remote + credentials.** The model is
+  already git, so the server config is `{ remote_url, auth, local_path }`.
+  GitHub/GitLab are natural remotes (SSH key / token); Nextcloud only if it
+  *hosts a git repo* (its plain file-sync mode drops git as the transport —
+  avoid).
+- **Just another git writer**, coordinated with the desktop CLI through the
+  remote: pull-before-write / push-after under the same `sync_lock`, so the
+  conflict-free property (one file per todo + line-oriented plan) holds.
+- **Prerequisite refactor** (shared with 4c): extract the mutation orchestration
+  (`auto_sync` = local commit + background flush, today in `cli.py`) into a
+  UI-agnostic module used by CLI, server and GUI.
+
+Operational must-haves:
+
+- **Reachability**: **Tailscale** (or WireGuard) is the sweet spot — the phone
+  joins the tailnet and reaches `http://pytodo.<tailnet>` with **no public
+  exposure, no open ports**. Alternatives if a public URL is wanted: Caddy +
+  Let's Encrypt + auth, or a Cloudflare Tunnel.
+- **Auth is mandatory**, even behind the VPN: a single-user token / basic auth.
+  Never expose write endpoints unauthenticated.
+- **Pull cadence**: pull-before-write plus a periodic background pull (every N
+  seconds) to reflect CLI/other-device changes — not a pull on every read
+  (latency).
+- **Stack**: **FastAPI** (lean, serves API + static PWA) by default; Django only
+  if reusing the existing markdown->HTML server (§5, *Web rendering*).
 
 **Not** adopting Nextcloud Tasks / CalDAV as the task *backend*: it would give a
 free native mobile app (à la Planify) but only by abandoning markdown+git as the
 source of truth (or maintaining a git↔CalDAV two-way bridge). Nextcloud stays a
-file-sync transport (4a), not the store.
+git host or file-sync transport, not the store.
+
+### 4c. Desktop GUI (pure frontend on the shared core) — later
+
+A more visual desktop app, built as a **separate `pytodo-gui` package** that
+depends on `pytodo` and reuses its library directly (never shelling out to the
+CLI, whose output is for humans). The GUI swaps only the edges for widgets; the
+core is already UI-agnostic.
+
+- **Prerequisite refactor**: the same `auto_sync` extraction as 4b (a
+  UI-agnostic orchestration module shared by CLI, server and GUI). The GUI is
+  then just another git writer through `sync` + `sync_lock`.
+- **Live refresh**: watch the repo (e.g. `watchdog`) to re-render when another
+  device syncs.
+- **Toolkit options (undecided, choose later)**:
+  - **GTK4 / libadwaita** (PyGObject): native on GNOME/Fedora, Planify-like.
+  - **PySide6 (Qt)**: more portable, quicker to start.
+  - **Webview** (pywebview) reusing the future web frontend (4b): one UI, two
+    shells (desktop + mobile PWA), at the cost of pulling in a web stack.
 
 ## 5. Other useful improvements
 
@@ -192,12 +273,15 @@ file-sync transport (4a), not the store.
   layer is well covered; the command wiring is not).
 - **Conflict helper**: `todo sync` currently reports rebase conflicts and stops.
   Add guidance / a resolver, even though one-file-per-todo makes them rare.
-- **Deadline reminders**: a `todo show --today` is manual; consider an optional
-  notification hook (desktop/Termux) for due/overdue items.
+- **Deadlines (removed for now)**: the hard `deadline` date field was dropped
+  (rarely a real date in practice; urgency + horizon + the daily plan cover the
+  need). Reintroduce later *with* a design for how a hard date coexists with
+  urgency/horizon and the daily plan (sort weight, an overdue signal, and a
+  possible reminder hook) — not as a bare field bolted back on.
 - **Subtasks**: for a lightweight breakdown, the todo **body already supports a
   markdown checklist** (`- [ ]`) — zero code, use it first. Promote to
   *first-class* subtasks (a `parent: <id>` front-matter field, one file per
-  subtask) only when a subtask needs its **own** urgency/deadline/daily
+  subtask) only when a subtask needs its **own** urgency/horizon/daily
   planning. That is also the only case where "show the parent context"
   rendering (`Subtask (Parent)`, which gets unreadable for long titles) matters
   — and it needs rules: does completing all children auto-complete the parent?
