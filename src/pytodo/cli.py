@@ -68,6 +68,11 @@ def handle_errors(fn):
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
+        except typer.Exit:
+            # typer.Exit subclasses RuntimeError, so it has to be re-raised
+            # before the RuntimeError arm below swallows every clean exit and
+            # reports it as a failure with the exit code as its message.
+            raise
         except prompt.Cancelled:
             console.print("[grey62]cancelled[/grey62]")
             raise typer.Exit(1) from None
