@@ -3,10 +3,15 @@
 <p align="center"><em>Growing up means remembering deadlines. Neverland remembers them for you.</em></p>
 
 <p align="center">
-  <img src="https://github.com/walcark/neverland/actions/workflows/ci.yml/badge.svg">
+  <a href="https://github.com/walcark/neverland/actions/workflows/ci.yml"><img src="https://github.com/walcark/neverland/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://codecov.io/gh/walcark/neverland"><img src="https://codecov.io/gh/walcark/neverland/branch/main/graph/badge.svg"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue">
   <a href="https://pixi.sh"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
-  <img src="https://img.shields.io/badge/python-3.11%2B-blue">
+  <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/mypy-checked-2a6db2"></a>
+  <img src="https://img.shields.io/badge/tested%20with-pytest-0a9edc?logo=pytest&logoColor=white">
+  <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white">
+  <img src="https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB">
 </p>
 
 A minimalist CLI to manage todos the **GTD** way, built for fast daily use
