@@ -41,11 +41,17 @@ another device: todo sync  <-- pull ------------------------------------ +
 
 ## Install
 
+pytodo is a monorepo of two distributions: `pytodo-core` (the domain, storage
+and git sync) and `pytodo-cli` (the `todo` command). The CLI depends on the
+core. Until they are published to PyPI, install both from the checkout:
+
 ```sh
-pipx install .
+pip install ./packages/core ./packages/cli
 ```
 
-This exposes the `todo` command.
+This exposes the `todo` command. Once published, `pipx install pytodo-cli` will
+pull `pytodo-core` on its own. For hacking on the code, use pixi instead (see
+[Development](#development)), which installs both packages editable.
 
 ## Setup a data repo
 
@@ -257,8 +263,8 @@ Automatic background sync is controlled by `sync.auto` in the repo's
 push manually with `todo sync`.
 
 > Internally, every mutation goes through a single UI-agnostic **service** layer
-> (`service.py`) that commits then schedules the flush, so the CLI (and a future
-> server) share one write path.
+> (`pytodo.core.service`) that commits then schedules the flush, so the CLI (and
+> a future server) share one write path.
 
 ## Configuration
 
@@ -320,6 +326,12 @@ A `next` action's title should be a **physical, visible next step** ("Call the
 plumber about the leak"), not a topic ("Plumber"). `todo clarify` asks for it.
 
 ## Development
+
+The two distributions live under `packages/core` and `packages/cli`, each with
+its own `pyproject.toml` and co-located tests. The pixi workspace (`pixi.toml`)
+installs both editable; shared tooling config (ruff/mypy/pytest) is in the root
+`pyproject.toml`, which itself builds nothing. `core` may not import `cli`,
+enforced by a ruff rule and `packages/core/tests/test_layering.py`.
 
 ```sh
 pixi run -e dev lint         # ruff check

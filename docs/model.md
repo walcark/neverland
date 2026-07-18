@@ -1,8 +1,10 @@
 # The GTD model
 
-Status: **implemented**. Phases 1 to 3 of the restructuring plan (see the bottom
-of this file) are done: the model, the module renames, and the service layer.
-The package split (phase 5) and the server (phase 6) remain.
+Status: **implemented**. Phases 1 to 5 of the restructuring plan (see the bottom
+of this file) are done: the model, the module renames, the service layer, and
+the split into two distributions (`pytodo-core` + `pytodo-cli`). Only the server
+(phase 6) remains; `pytodo-server` is not built yet, so the split is two
+distributions today, not three.
 
 This file is the source of truth for the domain model. `ROADMAP.md` tracks
 features; this tracks *meaning*.
@@ -304,7 +306,9 @@ imposed on it.
 3. **Extract the service layer** (done) out of `cli.py` into `service.py`.
 4. **Rename modules** (done): mechanical moves, no behaviour change. Landed
    alongside phase 2 rather than after phase 3.
-5. **Split the packages**: near-trivial once 1 to 4 are done.
+5. **Split the packages** (done, for core + cli): `packages/core` and
+   `packages/cli`, PEP 420 namespace, pixi workspace. `pytodo-server` is left
+   out until phase 6 rather than shipped empty.
 6. **The server.**
 
 `gitrepo.py` is ported, not rewritten. Its 605 lines encode create-or-validate,
@@ -339,16 +343,17 @@ count.
 
 ### Target packages
 
-Three distributions in one monorepo, sharing the `pytodo` namespace (PEP 420:
-**no** `pytodo/__init__.py` in any of them).
+Distributions in one monorepo under `packages/`, sharing the `pytodo` namespace
+(PEP 420: **no** `pytodo/__init__.py` in any of them). Two are built today
+(`core`, `cli`); `server` is the phase-6 target, listed here for the shape.
 
 ```
 pytodo-core     pytodo/core/    todo, project, plan, vocabulary, settings,
-                                store, vcs, service
+                                store, vcs, service   (+ __main__: sync flush)
                                 deps: pyyaml
-pytodo-cli      pytodo/cli/     main, prompt, view, commands/
+pytodo-cli      pytodo/cli/     main, prompt, view
                                 deps: pytodo-core, typer, rich
-pytodo-server   pytodo/server/  app, api, web/, poller
+pytodo-server   pytodo/server/  app, api, web/, poller       (not built yet)
                                 deps: pytodo-core, fastapi, uvicorn
 ```
 
