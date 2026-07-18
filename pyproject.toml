@@ -12,6 +12,10 @@ select = ["E", "F", "I", "UP", "B", "TID"]
 [tool.ruff.lint.isort]
 known-first-party = ["pytodo"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom: Depends()/Query() as argument defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = false
@@ -20,4 +24,7 @@ namespace_packages = true
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
-testpaths = ["packages/core/tests", "packages/cli/tests"]
+testpaths = ["packages/core/tests", "packages/cli/tests", "packages/server/tests"]
+# importlib mode: co-located test suites may share a basename (test_layering.py)
+# across packages without the default prepend-mode module clash.
+addopts = "--import-mode=importlib"
