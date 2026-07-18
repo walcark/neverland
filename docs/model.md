@@ -1,7 +1,8 @@
 # The GTD model
 
-Status: **spec, not implemented**. This is phase 1 of the restructuring plan
-(see the bottom of this file). No code follows this document yet.
+Status: **implemented**. Phases 1 to 3 of the restructuring plan (see the bottom
+of this file) are done: the model, the module renames, and the service layer.
+The package split (phase 5) and the server (phase 6) remain.
 
 This file is the source of truth for the domain model. `ROADMAP.md` tracks
 features; this tracks *meaning*.
@@ -250,6 +251,11 @@ data/
 
 ## Migration from the current format
 
+A one-shot `todo migrate` command performed the mapping below, then was removed
+once the only known data repo had been migrated. It lived in `migrate.py`; the
+git history (`feat: add todo migrate`) has it if a stray pre-GTD repo ever turns
+up. The mapping, for the record:
+
 | Current | Becomes |
 | --- | --- |
 | `category: X` | `area: X` |
@@ -258,10 +264,10 @@ data/
 | `horizon: *` | dropped |
 | (none) | `context: null`, flagged by `todo review` |
 
-Nothing lands in `inbox`: existing todos were already clarified under the old
+Nothing landed in `inbox`: existing todos were already clarified under the old
 model, so calling them `next` is truthful. They are merely contextless, which
-`todo review` will report as a backlog to work through, rather than dumping the
-whole list back into the inbox.
+`todo review` reports as a backlog to work through, rather than dumping the whole
+list back into the inbox.
 
 ## Deliberate non-goals
 
@@ -291,11 +297,13 @@ Splitting first would only relocate that behind a distribution boundary, where
 it is harder to fix. The boundary should be discovered by the refactor, not
 imposed on it.
 
-1. **Freeze the model** — this document.
-2. **Model + migration**, inside the current single package, with tests. The
-   risky phase; do it while the code is still one piece.
-3. **Extract the service layer** out of `cli.py` into `core/service.py`.
-4. **Rename modules** — mechanical moves, one commit, no behaviour change.
+1. **Freeze the model** (done) — this document.
+2. **Model + migration** (done), inside the current single package, with tests.
+   The risky phase; done while the code was still one piece. The one-shot
+   migration command has since been removed (see "Migration" above).
+3. **Extract the service layer** (done) out of `cli.py` into `service.py`.
+4. **Rename modules** (done) — mechanical moves, no behaviour change. Landed
+   alongside phase 2 rather than after phase 3.
 5. **Split the packages** — near-trivial once 1 to 4 are done.
 6. **The server.**
 
