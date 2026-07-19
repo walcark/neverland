@@ -22,6 +22,7 @@ from rich.markup import escape
 
 from neverland.core import service, store, vcs
 from neverland.core.plan import PlanEntry, PlanStatus
+from neverland.core.project import Project
 from neverland.core.routine import MONTH_NAMES, Freq, Recurrence, Routine
 from neverland.core.settings import read_data_dir, write_data_dir
 from neverland.core.todo import Todo, TodoState, sort_key
@@ -253,15 +254,22 @@ def repo(
 def add(
     title: str | None = typer.Argument(None, help="Todo title."),
     edit: bool = typer.Option(False, "--edit", help="Open $EDITOR after creation."),
+    project: bool = typer.Option(
+        False, "--project", help="Pick a project to capture into."
+    ),
 ):
     """Capture a todo into the inbox.
 
     Deliberately asks nothing beyond the title: capture must cost a second and
     zero decisions, or you stop capturing. `todo clarify` does the thinking
-    later.
+    later. `--project` only pre-links it to an outcome you already know; it
+    still lands in the inbox, unclarified.
     """
     data_dir = require_data_dir()
     cfg = load_repo_config(data_dir)
+    project_id = None
+    if project:
+        project_id = _pick_project(data_dir, "Capture into which project?").id
 
     if not title:
         title = prompt.text_input("Your todo...")
@@ -272,12 +280,12 @@ def add(
     if edit:
         # The editor writes the body between creation and commit, so this path
         # composes the primitives directly rather than the one-shot `capture`.
-        todo = store.create_todo(data_dir, title=title)
+        todo = store.create_todo(data_dir, title=title, project=project_id)
         if todo.path is not None:
             open_editor(todo.path)
         sync = service.auto_sync(data_dir, cfg, f"add: {todo.title}")
     else:
-        todo, sync = service.capture(data_dir, cfg, title)
+        todo, sync = service.capture(data_dir, cfg, title, project=project_id)
 
     inbox = len(store.list_by_state(data_dir, TodoState.INBOX))
     _ok(f"Captured: {todo.title}  [inbox: {inbox}]")
@@ -714,6 +722,93 @@ def config_area(
 # --------------------------------------------------------------------------- #
 # Manual synchronization                                                       #
 # --------------------------------------------------------------------------- #
+
+
+@app.command()
+@handle_errors
+def unplan():
+    """Remove items from today's plan (the todos themselves are untouched)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+    plan = store.load_day_plan(data_dir, date.today())
+    if not plan.entries:
+        _warn("Nothing planned today.")
+        return
+
+    by_label = {f"{e.title}  [{e.status.value}]": e for e in plan.entries}
+    chosen = prompt.choose(list(by_label), header="Remove from today's plan")
+    entry = by_label[chosen]
+    _ok(f"Unplanned: {entry.title}")
+    _emit_sync(service.plan_remove(data_dir, cfg, entry.todo_id))
+
+
+# --------------------------------------------------------------------------- #
+# Projects                                                                     #
+# --------------------------------------------------------------------------- #
+
+project_app = typer.Typer(help="Outcomes that need more than one action.")
+app.add_typer(project_app, name="project")
+
+
+def _pick_project(data_dir: Path, header: str) -> Project:
+    """Pick one active project via fzf, or exit when there is none."""
+    projects = store.list_active_projects(data_dir)
+    if not projects:
+        _warn("No active projects. Create one with `todo project add`.")
+        raise typer.Exit(0)
+    by_label = {p.title: p for p in projects}
+    return by_label[prompt.choose(list(by_label), header=header)]
+
+
+@project_app.callback(invoke_without_command=True)
+def project_show(ctx: typer.Context) -> None:
+    """List the active projects, flagging the ones nothing is advancing."""
+    if ctx.invoked_subcommand is not None:
+        return
+    data_dir = require_data_dir()
+    projects = store.list_active_projects(data_dir)
+    if not projects:
+        console.print("[grey62]No projects. Add one with `todo project add`.[/grey62]")
+        return
+    active = store.list_active(data_dir)
+    for project in projects:
+        actions = [t for t in active if t.project == project.id]
+        nexts = [t for t in actions if t.state is TodoState.NEXT]
+        flag = (
+            f"[cyan]{len(nexts)} next[/cyan]" if nexts else "[yellow]stalled[/yellow]"
+        )
+        console.print(
+            f"[bold]{escape(project.title)}[/bold]  {flag}  "
+            f"[grey62]{len(actions)} action(s)[/grey62]"
+        )
+        for todo in sorted(actions, key=sort_key):
+            console.print(f"  [grey62]-[/grey62] {prompt.format_line(todo)}")
+
+
+@project_app.command("add")
+@handle_errors
+def project_add(
+    title: str | None = typer.Argument(None, help="Project name."),
+) -> None:
+    """Create a project (the outcome you are after)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+
+    if not title:
+        title = prompt.text_input("Project name...")
+        if not title:
+            _err("Empty name, aborting.")
+            raise typer.Exit(1)
+
+    outcome = prompt.text_input("What does done look like? (optional)") or None
+    area = _resolve_optional_choice(None, cfg.areas, label="area", header="Area")
+
+    project, sync = service.add_project(
+        data_dir, cfg, title=title, outcome=outcome, area=area
+    )
+    _ok(f"Project: {project.title}")
+    _warn("No next action yet: capture one with `todo add --project`.")
+    _emit_sync(sync)
 
 
 # --------------------------------------------------------------------------- #
