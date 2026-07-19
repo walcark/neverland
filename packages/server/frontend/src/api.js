@@ -84,3 +84,25 @@ export function completeTodo(id) {
 export function deleteTodo(id) {
   return request(`/api/todos/${id}`, { method: 'DELETE' })
 }
+
+// Today's plan (entries carry a per-day status: planned / doing / done).
+export const getToday = () => request('/api/today')
+
+export function addToToday(id) {
+  return request(`/api/today/${id}`, { method: 'POST' })
+}
+
+export function removeFromToday(id) {
+  return request(`/api/today/${id}`, { method: 'DELETE' })
+}
+
+export function setTodayStatus(id, status) {
+  return request(`/api/today/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+}
+
+// The archive of completed todos, most recently completed first.
+export const getDone = () => request('/api/done')

@@ -38,6 +38,12 @@ class TodoPatch(BaseModel):
     waiting_on: str | None = None
 
 
+class PlanStatusIn(BaseModel):
+    """Payload to set a plan entry's per-day status (``planned``/``doing``/``done``)."""
+
+    status: str
+
+
 class TodoOut(BaseModel):
     """A todo as sent to the client (no body, no filesystem path)."""
 

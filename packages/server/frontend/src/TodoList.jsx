@@ -1,9 +1,12 @@
 import { useState } from 'react'
 
-// A single row, with its two direct actions: complete (archive) and delete.
-// Both disable the row while in flight so a double click cannot fire twice.
-function TodoRow({ todo, onComplete, onDelete }) {
+import TodoEditor from './TodoEditor.jsx'
+
+// A single row with its direct actions: complete, edit, toggle in/out of
+// today's plan, delete. While editing, the row is replaced by the editor.
+function TodoRow({ todo, vocab, inToday, onComplete, onDelete, onEdit, onToggleToday }) {
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const run = (fn) => async () => {
     if (busy) return
@@ -13,6 +16,30 @@ function TodoRow({ todo, onComplete, onDelete }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function save(fields) {
+    setBusy(true)
+    try {
+      await onEdit(todo.id, fields)
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <li className="todo editing">
+        <TodoEditor
+          todo={todo}
+          vocab={vocab}
+          busy={busy}
+          onSave={save}
+          onCancel={() => setEditing(false)}
+        />
+      </li>
+    )
   }
 
   return (
@@ -35,6 +62,26 @@ function TodoRow({ todo, onComplete, onDelete }) {
         {todo.waiting_on && <span className="tag waiting">{todo.waiting_on}</span>}
       </span>
       <button
+        className={`today-toggle${inToday ? ' in-today' : ''}`}
+        type="button"
+        title={inToday ? "Remove from today" : "Add to today"}
+        aria-label={inToday ? `Remove ${todo.title} from today` : `Add ${todo.title} to today`}
+        onClick={run(onToggleToday)}
+        disabled={busy}
+      >
+        {inToday ? '★ Today' : '☆ Today'}
+      </button>
+      <button
+        className="row-edit"
+        type="button"
+        title="Edit"
+        aria-label={`Edit ${todo.title}`}
+        onClick={() => setEditing(true)}
+        disabled={busy}
+      >
+        ✎
+      </button>
+      <button
         className="row-del"
         type="button"
         title="Delete"
@@ -48,7 +95,15 @@ function TodoRow({ todo, onComplete, onDelete }) {
   )
 }
 
-export default function TodoList({ todos, onComplete, onDelete }) {
+export default function TodoList({
+  todos,
+  vocab,
+  todayIds,
+  onComplete,
+  onDelete,
+  onEdit,
+  onToggleToday,
+}) {
   if (todos.length === 0) {
     return <p className="empty">Nothing here.</p>
   }
@@ -58,8 +113,12 @@ export default function TodoList({ todos, onComplete, onDelete }) {
         <TodoRow
           key={todo.id}
           todo={todo}
+          vocab={vocab}
+          inToday={todayIds.has(todo.id)}
           onComplete={onComplete}
           onDelete={onDelete}
+          onEdit={onEdit}
+          onToggleToday={onToggleToday}
         />
       ))}
     </ul>

@@ -12,7 +12,7 @@ background flush is scheduled), which keeps the CLI and the server identical.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import (
     APIRouter,
@@ -24,6 +24,7 @@ from fastapi import (
 )
 
 from neverland.core import service, store, vcs
+from neverland.core.plan import PlanStatus
 from neverland.core.todo import Todo, TodoState
 from neverland.core.vocabulary import RepoConfig, load_repo_config
 
@@ -32,6 +33,7 @@ from .schemas import (
     CaptureIn,
     DayPlanOut,
     NamedCount,
+    PlanStatusIn,
     TodoOut,
     TodoPatch,
     ViewsOut,
@@ -278,3 +280,74 @@ def delete_todo(
     service.delete(cfg.data_dir, repo, [todo])
     background.add_task(vcs.background_flush, cfg.data_dir)
     return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------- #
+# Today's plan                                                                 #
+# --------------------------------------------------------------------------- #
+
+
+@router.post("/today/{todo_id}", response_model=DayPlanOut)
+def add_to_today(
+    todo_id: str,
+    background: BackgroundTasks,
+    cfg: ServerConfig = Depends(get_config),
+) -> DayPlanOut:
+    """Add a todo to today's plan (idempotent) and return the updated plan."""
+    todo = _require_active(cfg, todo_id)
+    repo = _repo_for_write(cfg)
+    service.plan_add(cfg.data_dir, repo, todo)
+    background.add_task(vcs.background_flush, cfg.data_dir)
+    return DayPlanOut.from_plan(store.load_day_plan(cfg.data_dir, date.today()))
+
+
+@router.patch("/today/{todo_id}", response_model=DayPlanOut)
+def set_today_status(
+    todo_id: str,
+    payload: PlanStatusIn,
+    background: BackgroundTasks,
+    cfg: ServerConfig = Depends(get_config),
+) -> DayPlanOut:
+    """Set the per-day status of a plan entry (``planned``/``doing``/``done``)."""
+    try:
+        status = PlanStatus(payload.status)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=f"unknown status: {payload.status!r}"
+        ) from None
+    plan = store.load_day_plan(cfg.data_dir, date.today())
+    if not plan.has(todo_id):
+        raise HTTPException(status_code=404, detail=f"not in today's plan: {todo_id}")
+    repo = _repo_for_write(cfg)
+    service.plan_set_status(cfg.data_dir, repo, todo_id, status)
+    background.add_task(vcs.background_flush, cfg.data_dir)
+    return DayPlanOut.from_plan(store.load_day_plan(cfg.data_dir, date.today()))
+
+
+@router.delete("/today/{todo_id}", status_code=204)
+def remove_from_today(
+    todo_id: str,
+    background: BackgroundTasks,
+    cfg: ServerConfig = Depends(get_config),
+) -> Response:
+    """Remove a todo from today's plan (the todo itself is left untouched)."""
+    plan = store.load_day_plan(cfg.data_dir, date.today())
+    if not plan.has(todo_id):
+        raise HTTPException(status_code=404, detail=f"not in today's plan: {todo_id}")
+    repo = _repo_for_write(cfg)
+    service.plan_remove(cfg.data_dir, repo, todo_id)
+    background.add_task(vcs.background_flush, cfg.data_dir)
+    return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------- #
+# History (the archive of completed todos)                                     #
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/done", response_model=list[TodoOut])
+def read_done(cfg: ServerConfig = Depends(get_config)) -> list[TodoOut]:
+    """Return the completed todos, most recently completed first."""
+    done = store.list_done(cfg.data_dir)
+    done.sort(key=lambda t: t.completed or datetime.min, reverse=True)
+    return [TodoOut.from_todo(t) for t in done]

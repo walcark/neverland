@@ -22,7 +22,7 @@ from datetime import date
 from pathlib import Path
 
 from . import store, vcs
-from .plan import PlanStatus
+from .plan import PlanEntry, PlanStatus
 from .todo import Todo
 from .vocabulary import RepoConfig, save_repo_config
 
@@ -140,6 +140,60 @@ def update(data_dir: Path, cfg: RepoConfig, todo: Todo) -> vcs.SyncResult:
     """
     store.save_todo(todo)
     return auto_sync(data_dir, cfg, f"edit: {todo.title}")
+
+
+# --------------------------------------------------------------------------- #
+# Daily plan                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def plan_add(
+    data_dir: Path, cfg: RepoConfig, todo: Todo, *, day: date | None = None
+) -> vcs.SyncResult:
+    """Add ``todo`` to a day's plan (default today) and sync.
+
+    Idempotent: a todo already in the plan is left untouched (no duplicate
+    entry), so the "Today" toggle can call this without checking first.
+    """
+    day = day or date.today()
+    plan = store.load_day_plan(data_dir, day)
+    if not plan.has(todo.id):
+        plan.entries.append(PlanEntry(todo_id=todo.id, title=todo.title))
+        store.save_day_plan(data_dir, plan)
+    return auto_sync(data_dir, cfg, f"plan: add {todo.title}")
+
+
+def plan_remove(
+    data_dir: Path, cfg: RepoConfig, todo_id: str, *, day: date | None = None
+) -> vcs.SyncResult:
+    """Drop ``todo_id`` from a day's plan (default today) and sync.
+
+    Takes an id, not a todo: an entry may reference a todo that is already
+    completed or deleted, and it must still be removable from the plan.
+    """
+    day = day or date.today()
+    plan = store.load_day_plan(data_dir, day)
+    plan.entries = [e for e in plan.entries if e.todo_id != todo_id]
+    store.save_day_plan(data_dir, plan)
+    return auto_sync(data_dir, cfg, "plan: remove item")
+
+
+def plan_set_status(
+    data_dir: Path,
+    cfg: RepoConfig,
+    todo_id: str,
+    status: PlanStatus,
+    *,
+    day: date | None = None,
+) -> vcs.SyncResult:
+    """Set the per-day status of a plan entry (default today) and sync."""
+    day = day or date.today()
+    plan = store.load_day_plan(data_dir, day)
+    entry = plan.find(todo_id)
+    if entry is not None:
+        entry.status = status
+        store.save_day_plan(data_dir, plan)
+    return auto_sync(data_dir, cfg, f"plan: {status.value} item")
 
 
 def reflect_done_in_today(data_dir: Path, todo_ids: list[str]) -> None:
