@@ -22,6 +22,7 @@ from rich.markup import escape
 
 from neverland.core import service, store, vcs
 from neverland.core.plan import PlanEntry, PlanStatus
+from neverland.core.routine import MONTH_NAMES, Freq, Recurrence, Routine
 from neverland.core.settings import read_data_dir, write_data_dir
 from neverland.core.todo import Todo, TodoState, sort_key
 from neverland.core.vocabulary import RepoConfig, load_repo_config
@@ -40,7 +41,9 @@ def _root(ctx: typer.Context) -> None:
     """Show today's plan when run without a subcommand (`todo`)."""
     if ctx.invoked_subcommand is not None:
         return
-    _render_today(require_data_dir())
+    data_dir = require_data_dir()
+    _materialize_due(data_dir)
+    _render_today(data_dir)
 
 
 _NO_REPO = "No data repo configured. Run `todo init <path-or-url>`."
@@ -178,6 +181,18 @@ def _pick_active(*, multi: bool) -> tuple[Path, RepoConfig, list[Todo]]:
     if not selected:
         raise typer.Exit(1)
     return data_dir, cfg, selected
+
+
+def _materialize_due(data_dir: Path) -> None:
+    """Spawn the routines that have come due, so looking at your day shows them.
+
+    The server does this on its poller; the CLI has no daemon, so it happens
+    whenever you look at (or build) today's plan. It is idempotent: nothing is
+    written unless a routine is genuinely due.
+    """
+    cfg = load_repo_config(data_dir)
+    for todo in service.materialize_routines(data_dir, cfg):
+        console.print(f"[grey62]routine due:[/grey62] {escape(todo.title)}")
 
 
 def _render_today(data_dir: Path) -> None:
@@ -434,6 +449,7 @@ def day():
     data_dir = require_data_dir()
     cfg = load_repo_config(data_dir)
     today = date.today()
+    _materialize_due(data_dir)  # due routines join the plan before we build it
     active = store.list_active(data_dir)
     active_ids = {t.id for t in active}
     plan = store.load_day_plan(data_dir, today)
@@ -698,6 +714,159 @@ def config_area(
 # --------------------------------------------------------------------------- #
 # Manual synchronization                                                       #
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# Routines (recurring todos)                                                   #
+# --------------------------------------------------------------------------- #
+
+routine_app = typer.Typer(help="Recurring todos that spawn on a schedule.")
+app.add_typer(routine_app, name="routine")
+
+_FREQ_LABELS = {
+    "every N days": Freq.DAYS,
+    "weekly (given weekdays)": Freq.WEEKLY,
+    "monthly (day of the month)": Freq.MONTHLY,
+    "yearly (month and day)": Freq.YEARLY,
+}
+
+
+def _pick_routine(data_dir: Path, header: str) -> Routine:
+    """Pick one routine via fzf, or exit when there is none."""
+    routines = store.list_routines(data_dir)
+    if not routines:
+        _warn("No routines yet. Create one with `todo routine add`.")
+        raise typer.Exit(0)
+    by_label = {f"{r.title}  ({r.recurrence.describe()})": r for r in routines}
+    return by_label[prompt.choose(list(by_label), header=header)]
+
+
+def _ask_recurrence() -> Recurrence:
+    """Build a recurrence by prompting for the mode, then its one parameter."""
+    freq = _FREQ_LABELS[prompt.choose(list(_FREQ_LABELS), header="Repeats")]
+    if freq is Freq.DAYS:
+        raw = prompt.text_input("Every how many days?", default="3")
+        return Recurrence(freq=freq, interval=max(int(raw or 3), 1))
+    if freq is Freq.WEEKLY:
+        raw = prompt.text_input("Which weekdays? (e.g. mon,wed,sat)", default="mon")
+        names = [n.strip().lower() for n in raw.split(",") if n.strip()]
+        return Recurrence.from_dict({"freq": "weekly", "weekdays": names})
+    if freq is Freq.MONTHLY:
+        raw = prompt.text_input("Which day of the month? (1-31)", default="1")
+        return Recurrence.from_dict({"freq": "monthly", "monthday": int(raw or 1)})
+    month = MONTH_NAMES.index(prompt.choose(MONTH_NAMES, header="Month")) + 1
+    day = prompt.text_input("Which day of that month?", default="1")
+    return Recurrence.from_dict(
+        {"freq": "yearly", "month": month, "day": int(day or 1)}
+    )
+
+
+@routine_app.callback(invoke_without_command=True)
+def routine_show(ctx: typer.Context) -> None:
+    """List the routines and when each one next fires."""
+    if ctx.invoked_subcommand is not None:
+        return
+    routines = store.list_routines(require_data_dir())
+    if not routines:
+        console.print("[grey62]No routines. Add one with `todo routine add`.[/grey62]")
+        return
+    for r in routines:
+        paused = "" if r.active else " [grey62](paused)[/grey62]"
+        lead = f" [grey62]{r.lead}d before[/grey62]" if r.lead else ""
+        console.print(
+            f"[bold]{escape(r.title)}[/bold]{paused}  "
+            f"[cyan]{r.recurrence.describe()}[/cyan]{lead}  "
+            f"[grey62]next {r.next_due}[/grey62]"
+        )
+
+
+@routine_app.command("add")
+@handle_errors
+def routine_add(
+    title: str | None = typer.Argument(None, help="Routine title."),
+) -> None:
+    """Create a recurring routine (prompts for the schedule)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+
+    if not title:
+        title = prompt.text_input("Routine title...")
+        if not title:
+            _err("Empty title, aborting.")
+            raise typer.Exit(1)
+
+    recurrence = _ask_recurrence()
+    context = _resolve_optional_choice(
+        None, cfg.contexts, label="context", header="Context"
+    )
+    area = _resolve_optional_choice(None, cfg.areas, label="area", header="Area")
+    lead = int(prompt.text_input("Show how many days early?", default="0") or 0)
+
+    routine, sync = service.add_routine(
+        data_dir,
+        cfg,
+        Routine(
+            id="",
+            title=title,
+            recurrence=recurrence,
+            context=context,
+            area=area,
+            lead=max(lead, 0),
+        ),
+    )
+    _ok(f"Routine: {routine.title}  [{routine.recurrence.describe()}]")
+    _materialize_due(data_dir)  # surface it right away when already due
+    _emit_sync(sync)
+
+
+@routine_app.command("edit")
+@handle_errors
+def routine_edit() -> None:
+    """Edit a routine in $EDITOR (its schedule is reseeded if the rule changed)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+    routine = _pick_routine(data_dir, "Edit which routine?")
+    before = routine.recurrence
+
+    open_editor(routine.require_path())
+
+    edited = store.find_routine(data_dir, routine.id)
+    if edited is None:
+        _err("Routine file disappeared.")
+        raise typer.Exit(1)
+    if edited.recurrence != before:
+        # A changed rule must not keep firing on the schedule it no longer has.
+        edited.next_due = edited.recurrence.first_on_or_after(date.today())
+        _warn(f"Schedule changed: next occurrence {edited.next_due}")
+
+    _ok(f"Edited: {edited.title}")
+    _emit_sync(service.update_routine(data_dir, cfg, edited))
+
+
+@routine_app.command("pause")
+@handle_errors
+def routine_pause() -> None:
+    """Pause or resume a routine (a paused routine spawns nothing)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+    routine = _pick_routine(data_dir, "Pause/resume which routine?")
+    routine.active = not routine.active
+    _ok(f"{'Resumed' if routine.active else 'Paused'}: {routine.title}")
+    _emit_sync(service.update_routine(data_dir, cfg, routine))
+
+
+@routine_app.command("rm")
+@handle_errors
+def routine_rm() -> None:
+    """Delete a routine (its already-spawned occurrences are kept)."""
+    data_dir = require_data_dir()
+    cfg = load_repo_config(data_dir)
+    routine = _pick_routine(data_dir, "Delete which routine?")
+    if not prompt.confirm(f"Delete routine {routine.title!r}?"):
+        console.print("[grey62]Aborted.[/grey62]")
+        return
+    _ok(f"Deleted: {routine.title}")
+    _emit_sync(service.remove_routine(data_dir, cfg, routine))
 
 
 @app.command()
