@@ -249,3 +249,167 @@ body {
 .error {
   color: #c0392b;
 }
+
+/* Row actions: complete on the left, delete on the right. */
+.todo.busy {
+  opacity: 0.5;
+}
+
+.check,
+.row-del {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  flex: none;
+}
+
+.check:hover:not(:disabled) {
+  border-color: #1f7a33;
+  color: #1f7a33;
+  background: #d7f0dc;
+}
+
+.row-del:hover:not(:disabled) {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+.check:disabled,
+.row-del:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Clarify: the header button and the one-item-at-a-time panel. */
+.clarify-start {
+  margin-left: auto;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.clarify {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.clarify-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.clarify-progress {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.clarify-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.clarify-head-actions button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.clarify-title {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  margin-bottom: 14px;
+}
+
+.clarify-dispositions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.seg {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.seg.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.clarify-fields {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.clarify-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.clarify-fields select,
+.clarify-fields input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  min-width: 160px;
+}
+
+.clarify-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.clarify-actions .primary {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clarify-actions .primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

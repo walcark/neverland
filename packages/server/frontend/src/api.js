@@ -45,6 +45,7 @@ async function request(path, options = {}) {
     resp = await send()
   }
   if (!resp.ok) throw new Error(`${path} -> ${resp.status}`)
+  if (resp.status === 204) return null
   return resp.json()
 }
 
@@ -64,4 +65,22 @@ export function capture(title) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
   })
+}
+
+// Partial edit: only the fields passed are changed (clarify sends state +
+// context/area/waiting_on; an inline rename sends just the title).
+export function updateTodo(id, fields) {
+  return request(`/api/todos/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+}
+
+export function completeTodo(id) {
+  return request(`/api/todos/${id}/complete`, { method: 'POST' })
+}
+
+export function deleteTodo(id) {
+  return request(`/api/todos/${id}`, { method: 'DELETE' })
 }

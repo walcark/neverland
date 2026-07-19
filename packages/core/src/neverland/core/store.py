@@ -88,6 +88,27 @@ def list_by_state(data_dir: Path, state: TodoState) -> list[Todo]:
     return [todo for todo in list_active(data_dir) if todo.state is state]
 
 
+def find_active(data_dir: Path, todo_id: str) -> Todo | None:
+    """Return the active todo with ``todo_id``, or ``None`` if absent.
+
+    Parameters
+    ----------
+    data_dir : pathlib.Path
+        Data repo root.
+    todo_id : str
+        Identifier (the file stem) to look up under ``todos/``.
+
+    Returns
+    -------
+    Todo or None
+        The matching active todo, or ``None`` when no such file exists.
+    """
+    for todo in list_active(data_dir):
+        if todo.id == todo_id:
+            return todo
+    return None
+
+
 def create_todo(
     data_dir: Path,
     *,

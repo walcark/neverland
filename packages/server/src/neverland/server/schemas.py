@@ -22,6 +22,22 @@ class CaptureIn(BaseModel):
     title: str
 
 
+class TodoPatch(BaseModel):
+    """Partial edit of a todo: only the fields actually sent are applied.
+
+    ``model_dump(exclude_unset=True)`` on the server side tells apart "leave
+    this field alone" from "clear it" (an explicit ``null``), which is what a
+    clarify step needs (set a context, drop a stale ``waiting_on``, ...).
+    """
+
+    title: str | None = None
+    state: str | None = None
+    context: str | None = None
+    area: str | None = None
+    project: str | None = None
+    waiting_on: str | None = None
+
+
 class TodoOut(BaseModel):
     """A todo as sent to the client (no body, no filesystem path)."""
 

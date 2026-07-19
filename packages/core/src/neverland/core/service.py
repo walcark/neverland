@@ -130,6 +130,18 @@ def delete(data_dir: Path, cfg: RepoConfig, todos: list[Todo]) -> vcs.SyncResult
     return auto_sync(data_dir, cfg, f"del: {len(todos)} todo(s)")
 
 
+def update(data_dir: Path, cfg: RepoConfig, todo: Todo) -> vcs.SyncResult:
+    """Persist an edited todo (clarify, defer, delegate, rename) and sync.
+
+    A state change never moves the file, so this is a rewrite in place; only
+    completion, which archives the file, goes through :func:`complete`. The
+    caller mutates ``todo`` (its state, context, area, ...) beforehand; here we
+    only write it back and schedule the sync.
+    """
+    store.save_todo(todo)
+    return auto_sync(data_dir, cfg, f"edit: {todo.title}")
+
+
 def reflect_done_in_today(data_dir: Path, todo_ids: list[str]) -> None:
     """Mark ``todo_ids`` as done in today's plan, if they appear in it.
 

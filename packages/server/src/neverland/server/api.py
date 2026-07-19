@@ -1,19 +1,31 @@
-"""Read API: the JSON endpoints that compose ``neverland.core`` for the web UI.
+"""JSON API: the endpoints that compose ``neverland.core`` for the web UI.
 
-Everything here is read-only (v1). Endpoints are plain ``def`` so FastAPI runs
-them in a threadpool: core is synchronous (file I/O and git), which must not
-block the event loop. Writes arrive in step 2.
+Reads return the todos and sidebar counts; writes cover capture plus the
+clarify loop (edit a todo, complete it, delete it). Endpoints are plain ``def``
+so FastAPI runs them in a threadpool: core is synchronous (file I/O and git),
+which must not block the event loop.
+
+Every write follows the same contract as capture: commit locally now and let
+the poller own the network push (so ``sync_auto`` is cleared and one immediate
+background flush is scheduled), which keeps the CLI and the server identical.
 """
 
 from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+)
 
 from neverland.core import service, store, vcs
 from neverland.core.todo import Todo, TodoState
-from neverland.core.vocabulary import load_repo_config
+from neverland.core.vocabulary import RepoConfig, load_repo_config
 
 from .config import ServerConfig
 from .schemas import (
@@ -21,6 +33,7 @@ from .schemas import (
     DayPlanOut,
     NamedCount,
     TodoOut,
+    TodoPatch,
     ViewsOut,
     VocabularyOut,
 )
@@ -144,3 +157,124 @@ def capture(
 
     background.add_task(vcs.background_flush, cfg.data_dir)
     return TodoOut.from_todo(todo)
+
+
+# --------------------------------------------------------------------------- #
+# Writes: clarify, complete, delete                                            #
+# --------------------------------------------------------------------------- #
+
+
+def _repo_for_write(cfg: ServerConfig) -> RepoConfig:
+    """Load the repo config with the background network flush disabled.
+
+    Like capture, every mutation commits locally now and leaves the push to the
+    poller, so ``sync_auto`` is cleared to avoid spawning a rival flush process.
+    """
+    repo = load_repo_config(cfg.data_dir)
+    repo.sync_auto = False
+    return repo
+
+
+def _require_active(cfg: ServerConfig, todo_id: str) -> Todo:
+    """Return the active todo with ``todo_id`` or raise ``404``."""
+    todo = store.find_active(cfg.data_dir, todo_id)
+    if todo is None:
+        raise HTTPException(status_code=404, detail=f"unknown todo: {todo_id}")
+    return todo
+
+
+def _apply_patch(cfg: ServerConfig, repo: RepoConfig, todo: Todo, fields: dict) -> None:
+    """Validate the patched ``fields`` against the vocabulary and apply them.
+
+    Only keys present in ``fields`` are touched; an explicit ``None`` clears the
+    field. ``area``, ``context`` and ``project`` must reference known values, so
+    a typo cannot orphan a todo onto a value nothing else uses.
+    """
+    if "title" in fields:
+        title = (fields["title"] or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title must not be empty")
+        todo.title = title
+    if "state" in fields:
+        try:
+            todo.state = TodoState(fields["state"])
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"unknown state: {fields['state']!r}"
+            ) from None
+    if "area" in fields:
+        area = fields["area"]
+        if area is not None and area not in repo.areas:
+            raise HTTPException(status_code=400, detail=f"unknown area: {area!r}")
+        todo.area = area
+    if "context" in fields:
+        context = fields["context"]
+        if context is not None and context not in repo.contexts:
+            raise HTTPException(status_code=400, detail=f"unknown context: {context!r}")
+        todo.context = context
+    if "project" in fields:
+        project = fields["project"]
+        if project is not None:
+            known = {p.id for p in store.list_active_projects(cfg.data_dir)}
+            if project not in known:
+                raise HTTPException(
+                    status_code=400, detail=f"unknown project: {project!r}"
+                )
+        todo.project = project
+    if "waiting_on" in fields:
+        todo.waiting_on = fields["waiting_on"] or None
+
+
+@router.patch("/todos/{todo_id}", response_model=TodoOut)
+def update_todo(
+    todo_id: str,
+    payload: TodoPatch,
+    background: BackgroundTasks,
+    cfg: ServerConfig = Depends(get_config),
+) -> TodoOut:
+    """Apply a partial edit to a todo (clarify, defer, delegate, rename).
+
+    Only the fields present in the body are changed. Setting ``state`` to
+    ``done`` is a completion, so it is routed through the archive path rather
+    than an in-place rewrite.
+    """
+    todo = _require_active(cfg, todo_id)
+    repo = _repo_for_write(cfg)
+    fields = payload.model_dump(exclude_unset=True)
+
+    if fields.get("state") == TodoState.DONE.value:
+        service.complete(cfg.data_dir, repo, [todo])
+    else:
+        _apply_patch(cfg, repo, todo, fields)
+        service.update(cfg.data_dir, repo, todo)
+
+    background.add_task(vcs.background_flush, cfg.data_dir)
+    return TodoOut.from_todo(todo)
+
+
+@router.post("/todos/{todo_id}/complete", response_model=TodoOut)
+def complete_todo(
+    todo_id: str,
+    background: BackgroundTasks,
+    cfg: ServerConfig = Depends(get_config),
+) -> TodoOut:
+    """Complete a todo: archive it and tick it in today's plan."""
+    todo = _require_active(cfg, todo_id)
+    repo = _repo_for_write(cfg)
+    service.complete(cfg.data_dir, repo, [todo])
+    background.add_task(vcs.background_flush, cfg.data_dir)
+    return TodoOut.from_todo(todo)
+
+
+@router.delete("/todos/{todo_id}", status_code=204)
+def delete_todo(
+    todo_id: str,
+    background: BackgroundTasks,
+    cfg: ServerConfig = Depends(get_config),
+) -> Response:
+    """Permanently delete a todo."""
+    todo = _require_active(cfg, todo_id)
+    repo = _repo_for_write(cfg)
+    service.delete(cfg.data_dir, repo, [todo])
+    background.add_task(vcs.background_flush, cfg.data_dir)
+    return Response(status_code=204)
