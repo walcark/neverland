@@ -141,6 +141,22 @@ body {
   font-size: 14px;
 }
 
+/* Drawer toggle: phone-only, revealed by the max-width media query. */
+.menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 16px;
+  cursor: pointer;
+  flex: none;
+}
+
 .quick-add {
   display: flex;
   gap: 8px;
@@ -194,13 +210,18 @@ body {
   margin-bottom: 8px;
 }
 
+/* min-width:0 is what lets a flex item shrink below its content: without it a
+   long title refuses to wrap and pushes everything out of the row. */
 .todo-title {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .todo-tags {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .pill {
@@ -894,4 +915,111 @@ body {
 .edit-actions button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* --------------------------------------------------------------------------
+   Phone layout. The desktop rules above are a two-column flex; below this
+   breakpoint the sidebar becomes an off-canvas drawer and every row is allowed
+   to wrap, so nothing can overflow a 390px screen.
+   -------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: 78%;
+    max-width: 300px;
+    min-width: 0;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease-out;
+  }
+
+  .sidebar.open {
+    transform: none;
+  }
+
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .menu-btn {
+    display: inline-flex;
+  }
+
+  .main {
+    padding: 14px 14px 32px;
+  }
+
+  .main-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .main-header h1 {
+    font-size: 19px;
+  }
+
+  /* Rows wrap instead of overflowing: title on its line, controls below. */
+  .todo,
+  .routine,
+  .review-list li {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .todo-title {
+    flex: 1 1 60%;
+  }
+
+  /* The word next to an icon is noise on a phone; the icon carries it. */
+  .btn-label {
+    display: none;
+  }
+
+  /* Stacked, full-width form controls (clarify, editor, routines, projects). */
+  .clarify-fields,
+  .edit-fields,
+  .routine-fields,
+  .project-create {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .clarify-fields select,
+  .clarify-fields input,
+  .edit-fields select,
+  .edit-fields input,
+  .routine-fields select,
+  .routine-fields input,
+  .project-create input,
+  .project-create select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .routine-fields input[type='number'] {
+    width: 100%;
+  }
+
+  .weekday-picker {
+    justify-content: space-between;
+  }
+
+  .project-capture,
+  .project-outcome,
+  .project-todos {
+    margin-left: 8px;
+  }
+
+  /* Keyboard shortcuts are meaningless on a touch screen. */
+  .kbd-hint {
+    display: none;
+  }
 }

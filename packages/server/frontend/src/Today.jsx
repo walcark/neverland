@@ -74,7 +74,8 @@ export default function Today({ onChanged }) {
                 }
                 disabled={busy}
               >
-                {entry.status === 'doing' ? '❚❚ Doing' : '▶ Doing'}
+                {entry.status === 'doing' ? '❚❚' : '▶'}
+                <span className="btn-label"> Doing</span>
               </button>
             )}
             {!done && todo && (

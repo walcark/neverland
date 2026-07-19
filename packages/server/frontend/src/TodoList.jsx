@@ -88,7 +88,8 @@ function TodoRow({
         onClick={run(onToggleToday)}
         disabled={busy}
       >
-        {inToday ? '★ Today' : '☆ Today'}
+        {inToday ? '★' : '☆'}
+        <span className="btn-label"> Today</span>
       </button>
       <button
         className="row-edit"

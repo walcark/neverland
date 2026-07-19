@@ -32,7 +32,7 @@ function Item({ icon, label, count, active, onClick }) {
   )
 }
 
-export default function Sidebar({ views, vocab, selection, onSelect }) {
+export default function Sidebar({ views, vocab, selection, onSelect, open }) {
   const count = (key) => (views ? views[key] : 0)
   const namedCount = (list, name) => {
     const found = (list || []).find((entry) => entry.name === name)
@@ -40,7 +40,7 @@ export default function Sidebar({ views, vocab, selection, onSelect }) {
   }
 
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar${open ? ' open' : ''}`}>
       <div className="brand">neverland</div>
 
       <div className="nav-group">

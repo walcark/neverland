@@ -39,6 +39,7 @@ export default function App() {
   const [projects, setProjects] = useState([])
   const [todayIds, setTodayIds] = useState(new Set())
   const [clarifying, setClarifying] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [error, setError] = useState(null)
 
   const isView = (value) => selection.kind === 'view' && selection.value === value
@@ -90,8 +91,10 @@ export default function App() {
   }, [loadSidebar, loadTodos])
 
   // Leaving a view stops any clarify session, so the button never lingers.
+  // On a phone the drawer must close too, or the pick stays hidden behind it.
   const select = useCallback((next) => {
     setClarifying(false)
+    setSidebarOpen(false)
     setSelection(next)
   }, [])
 
@@ -142,9 +145,21 @@ export default function App() {
         vocab={vocab}
         selection={selection}
         onSelect={select}
+        open={sidebarOpen}
       />
+      {sidebarOpen && (
+        <div className="backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
       <main className="main">
         <header className="main-header">
+          <button
+            type="button"
+            className="menu-btn"
+            aria-label="Open navigation"
+            onClick={() => setSidebarOpen(true)}
+          >
+            ☰
+          </button>
           <h1>{selection.label}</h1>
           {!dedicated && <span className="count">{todos.length}</span>}
           {canClarify && (
