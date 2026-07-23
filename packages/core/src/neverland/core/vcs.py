@@ -20,9 +20,10 @@ from datetime import datetime
 from pathlib import Path
 
 from .store import DONE_DIRNAME, TODOS_DIRNAME
-from .vocabulary import REPO_CONFIG_NAME, default_repo_config_toml
+from .vocabulary import REPO_CONFIG_NAME, default_repo_config_toml, load_repo_config
 
 NET_TIMEOUT = 20  # seconds, for pull/push/clone
+BATCH_TRAILER = "neverland-batch"  # marks a commit as ours, hence amendable
 
 
 class RepoError(Exception):
@@ -103,8 +104,124 @@ def looks_like_url(target: str) -> bool:
     return target.endswith(".git") and not Path(target).expanduser().exists()
 
 
+# --------------------------------------------------------------------------- #
+# Commit batching                                                             #
+# --------------------------------------------------------------------------- #
+#
+# One commit per mutation makes an unreadable history (dozens a day). Instead,
+# consecutive mutations fold into a single commit by amending it, for as long as
+# that commit is young, ours and unpushed. What is deliberately *not* done is
+# deferring the write: the working tree stays clean after every mutation, which
+# is what lets the CLI, the server and the poller share one repo without
+# stepping on each other. Only the history is compacted.
+
+
+def _is_repo_root(data_dir: Path) -> bool:
+    """Return whether ``data_dir`` is the root of its git work tree.
+
+    Amending commits without a pathspec, which is the only safe way to amend,
+    would defeat the ``-- .`` scoping. So batching is simply disabled when the
+    data repo is nested inside another one.
+    """
+    res = run_git(["rev-parse", "--show-toplevel"], cwd=data_dir)
+    if res.returncode != 0 or not res.stdout.strip():
+        return False
+    return Path(res.stdout.strip()) == data_dir.resolve()
+
+
+def _batch_message(entries: list[str]) -> str:
+    """Render the commit message for a batch of ``entries``."""
+    if len(entries) == 1:
+        parts = [entries[0]]
+    else:
+        parts = [
+            f"batch: {len(entries)} changes",
+            "\n".join(f"- {entry}" for entry in entries),
+        ]
+    parts.append(f"{BATCH_TRAILER}: {len(entries)}")
+    return "\n\n".join(parts) + "\n"
+
+
+def _parse_batch(message: str) -> list[str] | None:
+    """Return the entries recorded in a batch message, or ``None``.
+
+    The trailer is what identifies a commit as ours: a commit the user wrote by
+    hand in the data repo has none, and is therefore never rewritten.
+    """
+    lines = message.strip().splitlines()
+    count: int | None = None
+    for line in reversed(lines):
+        if line.startswith(f"{BATCH_TRAILER}:"):
+            try:
+                count = int(line.split(":", 1)[1])
+            except ValueError:
+                return None
+            break
+    if count is None or count < 1:
+        return None
+    if count == 1:
+        return lines[:1]
+    return [line[2:] for line in lines if line.startswith("- ")] or None
+
+
+def _head_age(data_dir: Path) -> float:
+    """Return the age in seconds of HEAD, measured on its *author* date.
+
+    The author date is the one a rebase preserves, so a batch opened at 09:00
+    still closes 15 minutes later even if the poller rebased it in between.
+    Amending updates the committer date only, which is exactly what anchors the
+    window on the batch's first mutation.
+    """
+    res = run_git(["log", "-1", "--format=%at"], cwd=data_dir)
+    try:
+        return time.time() - int(res.stdout.strip())
+    except ValueError:
+        return float("inf")  # no commit yet
+
+
+def _open_batch(data_dir: Path, window: int) -> list[str] | None:
+    """Return the entries of HEAD when it is a batch still open for amending.
+
+    A batch is open while it is younger than ``window`` seconds, carries our
+    trailer, and has never been pushed. Anything else yields ``None`` and the
+    caller writes a new commit.
+    """
+    if _head_age(data_dir) >= window:
+        return None
+    if has_upstream(data_dir) and _unpushed_count(data_dir) == 0:
+        return None  # HEAD is already on the remote: never rewrite it
+    res = run_git(["log", "-1", "--format=%B"], cwd=data_dir)
+    if res.returncode != 0:
+        return None
+    return _parse_batch(res.stdout)
+
+
+def _write_commit(
+    data_dir: Path, message: str, window: int
+) -> subprocess.CompletedProcess:
+    """Commit what is staged, folding it into HEAD while a batch is open.
+
+    With batching off, the message is written verbatim and carries no trailer,
+    so a commit made outside a window is never a candidate for a later amend.
+    """
+    if window <= 0 or not _is_repo_root(data_dir):
+        return run_git(["commit", "-m", message, "--", "."], cwd=data_dir)
+
+    # The lock is what makes the rewrite safe: a flush that might be pushing
+    # HEAD right now holds it, and we then open a new batch rather than wait
+    # (a mutation must stay instant).
+    with sync_lock(data_dir) as acquired:
+        entries = _open_batch(data_dir, window) if acquired else None
+        if entries is not None:
+            return run_git(
+                ["commit", "--amend", "-m", _batch_message([*entries, message])],
+                cwd=data_dir,
+            )
+    return run_git(["commit", "-m", _batch_message([message]), "--", "."], cwd=data_dir)
+
+
 def _commit_scoped(
-    data_dir: Path, message: str, *, attempts: int = 1
+    data_dir: Path, message: str, *, attempts: int = 1, window: int = 0
 ) -> tuple[bool, str]:
     """Stage and commit the data dir only, never an enclosing repo.
 
@@ -121,6 +238,9 @@ def _commit_scoped(
         Commit message.
     attempts : int, optional
         Number of tries on ``index.lock`` contention (default 1, no retry).
+    window : int, optional
+        Batching window in seconds (default 0, one commit per call). See
+        :func:`_write_commit`.
 
     Returns
     -------
@@ -136,7 +256,7 @@ def _commit_scoped(
             == 0
         ):
             return False, ""  # nothing to commit
-        res = run_git(["commit", "-m", message, "--", "."], cwd=data_dir)
+        res = _write_commit(data_dir, message, window)
         if res.returncode == 0:
             return True, ""
         last_err = res.stderr.strip()
@@ -369,6 +489,9 @@ class SyncResult:
         A push succeeded.
     pulled : bool
         A pull succeeded.
+    held : bool
+        The push was deliberately withheld because the current commit is still
+        open for batching (see ``sync_window``); the next flush sends it.
     conflict_files : list of str
         Files in conflict after a failed rebase.
     warnings : list of str
@@ -378,6 +501,7 @@ class SyncResult:
     committed: bool = False
     pushed: bool = False
     pulled: bool = False
+    held: bool = False
     conflict_files: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -394,6 +518,7 @@ def sync(
     push_if_unchanged: bool = False,
     network: bool = True,
     commit: bool = True,
+    window: int = 0,
 ) -> SyncResult:
     """Pull (rebase) -> commit -> push, best-effort.
 
@@ -416,6 +541,10 @@ def sync(
     commit : bool, optional
         When ``False``, skip the add/commit step (used by the background flush,
         where commits were already made in-process).
+    window : int, optional
+        Batching window in seconds (default 0, no batching). Consecutive
+        mutations fold into one commit, and the push is held back while that
+        commit is still open, since pushing it would freeze it.
 
     Returns
     -------
@@ -459,12 +588,19 @@ def sync(
 
     # -- commit -------------------------------------------------------------
     if commit:
-        result.committed, err = _commit_scoped(data_dir, message, attempts=3)
+        result.committed, err = _commit_scoped(
+            data_dir, message, attempts=3, window=window
+        )
         if err:
             result.warnings.append(f"commit failed: {err}")
 
     # -- push ---------------------------------------------------------------
     if origin and not result.conflict_files and (result.committed or push_if_unchanged):
+        # Pushing an open batch would freeze it, since a pushed commit must
+        # never be rewritten. Hold it: the flush after the window sends it.
+        if window > 0 and _open_batch(data_dir, window) is not None:
+            result.held = True
+            return result
         try:
             res = run_git(
                 ["push", "-u", "origin", "HEAD"], cwd=data_dir, timeout=NET_TIMEOUT
@@ -557,7 +693,7 @@ def _unpushed_count(data_dir: Path) -> int:
         return 0
 
 
-def background_flush(data_dir: Path) -> None:
+def background_flush(data_dir: Path, *, window: int | None = None) -> None:
     """Run the detached network sync: pull + push, best-effort, under lock.
 
     Drains in a loop: ``add`` commands may commit *while* this push runs (their
@@ -569,15 +705,22 @@ def background_flush(data_dir: Path) -> None:
     ----------
     data_dir : pathlib.Path
         Data repo root.
+    window : int, optional
+        Batching window in seconds; read from the repo config when omitted. A
+        held push is not an error: this flush simply stops, and the next one
+        (the server's poller, another mutation, or ``todo sync``) sends it once
+        the window has passed.
     """
+    if window is None:
+        window = load_repo_config(data_dir).sync_window
     with sync_lock(data_dir) as acquired:
         if not acquired:
             return  # another sync is already running; it drains for us
         for _ in range(10):
-            result = sync(data_dir, commit=False, push_if_unchanged=True)
+            result = sync(data_dir, commit=False, push_if_unchanged=True, window=window)
             _log_flush(data_dir, result)
             if result.conflict_files or not result.pushed:
-                break  # conflict or network down: retry on the next flush
+                break  # conflict, held batch or network down: try again later
             if _unpushed_count(data_dir) == 0:
                 break
 

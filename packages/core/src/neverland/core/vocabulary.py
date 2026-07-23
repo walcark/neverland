@@ -29,6 +29,7 @@ DEFAULT_CONTEXTS = [
     "@anywhere",
 ]
 DEFAULT_WAITING_STALE_DAYS = 7
+DEFAULT_SYNC_WINDOW = 900  # seconds; 0 disables batching (one commit per action)
 
 
 @dataclass
@@ -49,12 +50,19 @@ class RepoConfig:
     sync_auto : bool
         When ``True``, mutations trigger a background pull/push (instant local
         commit, best-effort network).
+    sync_window : int
+        Seconds during which consecutive mutations fold into a single commit
+        instead of one commit each, and during which the push is held back so
+        that commit stays amendable. ``0`` restores one commit per action. The
+        working tree is left clean either way: only the history is compacted,
+        never the writes.
     """
 
     areas: list[str] = field(default_factory=lambda: list(DEFAULT_AREAS))
     contexts: list[str] = field(default_factory=lambda: list(DEFAULT_CONTEXTS))
     waiting_stale_days: int = DEFAULT_WAITING_STALE_DAYS
     sync_auto: bool = True
+    sync_window: int = DEFAULT_SYNC_WINDOW
 
     def to_toml(self) -> str:
         """Serialize the config to a TOML string.
@@ -81,6 +89,7 @@ class RepoConfig:
             "",
             "[sync]",
             f"auto = {str(self.sync_auto).lower()}",
+            f"window = {self.sync_window}",
             "",
         ]
         return "\n".join(lines)
@@ -115,6 +124,7 @@ def load_repo_config(data_dir: Path) -> RepoConfig:
             "waiting_stale_days", DEFAULT_WAITING_STALE_DAYS
         ),
         sync_auto=data.get("sync", {}).get("auto", True),
+        sync_window=data.get("sync", {}).get("window", DEFAULT_SYNC_WINDOW),
     )
 
 

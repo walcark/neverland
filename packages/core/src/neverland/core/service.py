@@ -90,7 +90,8 @@ def auto_sync(data_dir: Path, cfg: RepoConfig, message: str) -> vcs.SyncResult:
     data_dir : pathlib.Path
         Data repo root.
     cfg : RepoConfig
-        Active repo config; ``sync_auto`` gates the background network flush.
+        Active repo config; ``sync_auto`` gates the background network flush,
+        ``sync_window`` folds consecutive mutations into a single commit.
     message : str
         Commit message for the local commit.
 
@@ -99,7 +100,7 @@ def auto_sync(data_dir: Path, cfg: RepoConfig, message: str) -> vcs.SyncResult:
     vcs.SyncResult
         The local sync outcome (warnings, conflicts) for the caller to render.
     """
-    result = vcs.sync(data_dir, message=message, network=False)
+    result = vcs.sync(data_dir, message=message, network=False, window=cfg.sync_window)
     if cfg.sync_auto:
         vcs.spawn_background_flush(data_dir)
     return result

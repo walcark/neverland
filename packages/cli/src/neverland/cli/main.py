@@ -709,6 +709,8 @@ def config_show(ctx: typer.Context) -> None:
     console.print(f"[bold]areas[/bold]     {', '.join(cfg.areas)}")
     console.print(f"[bold]contexts[/bold]  {', '.join(cfg.contexts)}")
     console.print(f"[bold]waiting[/bold]   stale after {cfg.waiting_stale_days} day(s)")
+    window = f"{cfg.sync_window}s batching" if cfg.sync_window else "one commit each"
+    console.print(f"[bold]sync[/bold]      auto {cfg.sync_auto}, {window}")
 
 
 @config_app.command("edit")
@@ -1056,7 +1058,11 @@ def routine_rm() -> None:
 @app.command()
 @handle_errors
 def sync():
-    """Force a blocking git sync (pull --rebase -> commit -> push)."""
+    """Force a blocking git sync (pull --rebase -> commit -> push).
+
+    Also the way to flush now: it ignores the batching window, so a commit still
+    open for amending is closed and pushed instead of waiting it out.
+    """
     data_dir = require_data_dir()
     # Blocking lock: wait for any background sync to finish to avoid git
     # collisions, then run a full, guaranteed sync.

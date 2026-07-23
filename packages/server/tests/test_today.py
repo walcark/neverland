@@ -84,7 +84,9 @@ def test_plan_write_makes_a_git_commit(client, tmp_path):
     todo_id = _capture(client, "Committed plan")
     client.post(f"/api/today/{todo_id}")
     log = subprocess.run(
-        ["git", "-C", str(tmp_path), "log", "--oneline"],
+        # The full body, not --oneline: consecutive mutations fold into
+        # one batch commit whose subject is a count (sync_window).
+        ["git", "-C", str(tmp_path), "log", "-1", "--format=%B"],
         capture_output=True,
         text=True,
         check=True,

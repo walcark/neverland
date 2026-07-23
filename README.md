@@ -287,6 +287,31 @@ Automatic background sync is controlled by `sync.auto` in the repo's
 `config.toml` (default `true`). Set it to `false` to only commit locally and
 push manually with `todo sync`.
 
+### Commit batching
+
+One commit per mutation buries the history under dozens of entries a day, so
+consecutive mutations **fold into a single commit** for `sync.window` seconds
+(default `900`, i.e. 15 minutes; `0` restores one commit per action):
+
+```
+add: Buy milk           # 09:00, opens a batch
+done: 1 todo(s)         # 09:04, amends it
+plan: add Buy milk      # 09:07, amends it
+                        --> batch: 3 changes  (every message kept in the body)
+```
+
+The commit is only amended while it is **young, ours and never pushed**: a
+commit you wrote by hand is left alone, and one already on the remote is never
+rewritten. The push is held back for the same window, since pushing a commit
+freezes it. This is *not* a deferred write: the file is written and committed
+immediately, so the working tree is clean after every mutation and the CLI, the
+server and the poller keep sharing one repo safely. Only the history is
+compacted.
+
+The cost is latency between devices: an action can take up to a window (twice
+that in the worst case) to reach the remote. `todo sync` flushes it now, and the
+server's poller sweeps whatever is pending on its own timer.
+
 > Internally, every mutation goes through a single UI-agnostic **service** layer
 > (`neverland.core.service`) that commits then schedules the flush, so the CLI (and
 > a future server) share one write path.
